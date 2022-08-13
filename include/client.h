@@ -13,13 +13,16 @@ public:
   Client(const char *host, const char *port);
   ~Client();
 
+public:
+  auto call(Conn::Handle fn) -> int;
+
 private:
   auto waitEvent(rdma_cm_event_type expected) -> rdma_cm_event *;
 
 private:
   addrinfo *addr_{nullptr};
   rdma_event_channel *ec_{nullptr};
-  Conn *conn_;
+  Conn *conn_{nullptr};
 };
 
 } // namespace rdma

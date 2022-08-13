@@ -44,12 +44,8 @@ Client::Client(const char *host, const char *port) {
   conn_ = new Conn(id);
   ret = ::rdma_connect(id, &conn_->param_);
   check(ret, "fail to connect the remote side");
-
   e = waitEvent(RDMA_CM_EVENT_ESTABLISHED);
   checkp(e, "do not get the established connection event");
-
-  info("private data len: %d", e->param.conn.private_data_len);
-
   ::memcpy(&conn_->remote_mr_, e->param.conn.private_data,
            sizeof(conn_->remote_mr_));
   ret = ::rdma_ack_cm_event(e);
@@ -82,6 +78,8 @@ auto Client::waitEvent(rdma_cm_event_type expected) -> rdma_cm_event * {
   return nullptr;
 }
 
+auto Client::call(Conn::Handle fn) -> int { return fn(conn_); }
+
 Client::~Client() {
   if (conn_ == nullptr) {
     return;
@@ -99,7 +97,7 @@ Client::~Client() {
   warnp(e, "fail to ack handle the disconnected connection event");
 
   delete conn_;
-  
+
   ::rdma_destroy_event_channel(ec_);
   ::freeaddrinfo(addr_);
 

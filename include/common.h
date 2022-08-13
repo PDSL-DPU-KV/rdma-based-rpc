@@ -6,6 +6,7 @@
 #include <rdma/rdma_cma.h>
 
 #include <atomic>
+#include <functional>
 #include <thread>
 
 namespace rdma {
@@ -13,6 +14,13 @@ namespace rdma {
 class Conn {
   friend class Client;
   friend class Server;
+
+public:
+  using Handle = std::function<int(Conn *)>;
+
+  //! NOTICE
+  //! Before Handle function, the buffer_ is used to receive one request.
+  //! After Handle function, the buffer_ is used to send one response.
 
 private:
   constexpr static auto defaultQpInitAttr() -> ibv_qp_init_attr {
@@ -28,11 +36,22 @@ private:
     };
   }
   constexpr static uint32_t cq_capacity = 8;
-  constexpr static uint32_t max_rpc_buffer_size = 1024;
 
 public:
-  Conn(rdma_cm_id *id);
+  constexpr static uint32_t max_buffer_size = 1024;
+
+public:
+  Conn(rdma_cm_id *id, ibv_comp_channel *cc = nullptr);
   ~Conn();
+
+public:
+  auto postRecv() -> void;
+  auto postSend() -> void;
+  auto pollCq(ibv_wc *wc) -> void;
+
+public:
+  auto recvBuffer() -> char *; // TODO: do not expose the buffer
+  auto sendBuffer() -> char *; // TODO: do not expose the buffer
 
 private:
   rdma_cm_id *id_{nullptr};
@@ -42,8 +61,10 @@ private:
 
   rdma_conn_param param_{};
 
-  char *buffer_{nullptr};
-  ibv_mr *local_mr_{nullptr};
+  char *send_buffer_{nullptr};
+  char *recv_buffer_{nullptr};
+  ibv_mr *send_mr_{nullptr};
+  ibv_mr *recv_mr_{nullptr};
   ibv_mr remote_mr_{nullptr};
 };
 
