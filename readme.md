@@ -42,8 +42,10 @@ meson compile -C build
 ## To-do
 
 - [x] basic connection management
-- [ ] add send and recv verbs
+- [x] add send and recv verbs
 - [ ] add read and write verbs
+- [ ] add better message queue and thread pool
+- [ ] make the whole architecture better for rpc
 
 ## Reference
 
