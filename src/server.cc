@@ -1,11 +1,12 @@
 #include "server.h"
 #include "error.h"
+#include "signal.h"
 
 #include <cassert>
 
 namespace rdma {
 
-Server::Server(const char *host, const char *port) {
+Server::Server(const char *host, const char *port) : base_(::event_base_new()) {
   int ret = 0;
   ret = ::getaddrinfo(host, port, nullptr, &addr_);
   check(ret, "fail to parse host and port");
@@ -26,73 +27,38 @@ Server::Server(const char *host, const char *port) {
 
   info("bind address and begin listening for connection requests");
 
-  cc_ = ibv_create_comp_channel(cm_id_->verbs);
-  checkp(cc_, "fail to create completion channel");
+  conn_event_ = ::event_new(base_, ec_->fd, EV_READ | EV_PERSIST,
+                            &Server::onConnEvent, this);
+  checkp(conn_event_, "fail to create connection event");
+  ret = ::event_add(conn_event_, nullptr);
+  check(ret, "fail to register connection event");
+
+  exit_event_ =
+      ::event_new(base_, SIGINT, EV_SIGNAL | EV_PERSIST, &Server::onExit, this);
+  checkp(exit_event_, "fail to create exit event");
+  ret = ::event_add(exit_event_, nullptr);
+  check(ret, "fail to register exit event");
+
+  info("register all events into event loop");
 }
 
-auto Server::registerHandle(Conn::Handle fn) -> void { fn_ = fn; }
-
-auto Server::run() -> void {
-  running_ = true;
-  bg_t_ = new std::thread(&Server::wcManage, this);
-  connManage();
+auto Server::run() -> int {
+  info("event loop running");
+  return ::event_base_dispatch(base_);
 }
 
-auto Server::connManage() -> void {
-  info("connection management loop running");
-  while (running_) {
-    onEvent();
-  }
+auto Server::onExit([[gnu::unused]] int fd, [[gnu::unused]] short what,
+                    void *arg) -> void {
+  int ret = ::event_base_loopbreak(reinterpret_cast<Server *>(arg)->base_);
+  check(ret, "fail to break event loop");
+  info("event loop break");
 }
 
-auto Server::wcManage() -> void {
-  info("work completion event loop running");
-  // TODO: we have trouble in stopping the background thread...
-  while (running_) {
-    ibv_cq *cq = nullptr;
-    void *ctx = nullptr;
-    auto ret = ::ibv_get_cq_event(cc_, &cq, &ctx);
-    ::ibv_ack_cq_events(cq, 1);
-    if (ret != 0) {
-      info("meet an error cq event");
-      continue;
-    }
-
-    ret = ibv_req_notify_cq(cq, 0);
-    if (ret != 0) {
-      info("fail to request completion notification on a cq");
-      continue;
-    }
-
-    info("got a cq event");
-    Conn *conn = reinterpret_cast<Conn *>(ctx);
-
-    ibv_wc wc;
-    conn->pollCq(&wc);
-    if (wc.status != IBV_WC_SUCCESS) {
-      info("meet an error wc, status: %d", wc.status);
-      continue;
-    }
-
-    if (wc.opcode & IBV_WC_RECV) {
-      info("receive a request");
-      if (fn_ != nullptr) {
-        fn_(conn);
-      } else {
-        info("no handle for wc");
-      }
-      conn->postRecv();
-    } else {
-      info("send a response");
-    }
-  }
-}
-
-auto Server::stop() -> void { running_ = false; }
-
-auto Server::onEvent() -> void {
+auto Server::onConnEvent([[gnu::unused]] int fd, [[gnu::unused]] short what,
+                         void *arg) -> void {
+  Server *s = reinterpret_cast<Server *>(arg);
   rdma_cm_event *e;
-  if (::rdma_get_cm_event(ec_, &e) != 0) {
+  if (::rdma_get_cm_event(s->ec_, &e) != 0) {
     info("fail to get cm event");
     return;
   }
@@ -111,20 +77,25 @@ auto Server::onEvent() -> void {
   switch (e->event) {
   case RDMA_CM_EVENT_CONNECT_REQUEST: { // throw when bad connection
     info("handle a connection request");
-    auto conn = new Conn(client_id, cc_);
+
+    auto conn = new Conn(Conn::ServerSide, client_id, true);
+
     auto ret = ::rdma_accept(client_id, &conn->param_);
     check(ret, "fail to accept connection");
-    ::memcpy(&conn->remote_mr_, e->param.conn.private_data,
-             e->param.conn.private_data_len);
-    client_id->context = conn;
 
-    info("remote memory region: address: %p, length: %d", conn->remote_mr_.addr,
-         conn->remote_mr_.length);
+    client_id->context = conn;
+    info("accept the connection");
+
+    ret = conn->registerCompEvent(s->base_);
+    check(ret, "fail to register completion event");
+
+    info("register the connection completion event");
+
+    conn->postRecv(conn->meta_mr_);
     break;
   }
   case RDMA_CM_EVENT_ESTABLISHED: {
     info("establish a connection");
-    reinterpret_cast<Conn *>(client_id->context)->postRecv();
     break;
   }
   case RDMA_CM_EVENT_DISCONNECTED: {
@@ -140,6 +111,9 @@ auto Server::onEvent() -> void {
 }
 
 Server::~Server() {
+  ::event_base_free(base_);
+  ::event_free(conn_event_);
+
   auto ret = ::rdma_destroy_id(cm_id_);
   warn(ret, "fail to destroy cm id");
   ::rdma_destroy_event_channel(ec_);

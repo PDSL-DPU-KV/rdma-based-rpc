@@ -41,20 +41,17 @@ Client::Client(const char *host, const char *port) {
 
   info("resolve the route");
 
-  conn_ = new Conn(id);
+  conn_ = new Conn(Conn::ClientSide, id);
   ret = ::rdma_connect(id, &conn_->param_);
   check(ret, "fail to connect the remote side");
   e = waitEvent(RDMA_CM_EVENT_ESTABLISHED);
   checkp(e, "do not get the established connection event");
-  ::memcpy(&conn_->remote_mr_, e->param.conn.private_data,
-           sizeof(conn_->remote_mr_));
+  ::memcpy(&conn_->remote_buffer_mr_, e->param.conn.private_data,
+           sizeof(conn_->remote_buffer_mr_));
   ret = ::rdma_ack_cm_event(e);
   check(ret, "fail to handle established connection event");
 
   info("establish the connection");
-
-  info("remote memory region: address: %p, length: %d", conn_->remote_mr_.addr,
-       conn_->remote_mr_.length);
 }
 
 auto Client::waitEvent(rdma_cm_event_type expected) -> rdma_cm_event * {
@@ -78,7 +75,35 @@ auto Client::waitEvent(rdma_cm_event_type expected) -> rdma_cm_event * {
   return nullptr;
 }
 
-auto Client::call(Conn::Handle fn) -> int { return fn(conn_); }
+// TODO: make this a general rpc call
+auto Client::call() -> int {
+  ::memcpy(conn_->buffer_, "hello", 6);
+
+  info("request content: %s", conn_->buffer_);
+
+  ibv_wc wc;
+  conn_->postSend(conn_->meta_mr_);
+  conn_->pollCq(&wc);
+  if (wc.status != IBV_WC_SUCCESS) {
+    info("fail to send local buffer meta");
+    return -1;
+  }
+
+  info("local buffer region: address: %p, length: %d", conn_->buffer_,
+       Conn::max_buffer_size);
+
+  conn_->postRecv(conn_->local_buffer_mr_);
+  conn_->pollCq(&wc);
+  if (wc.status != IBV_WC_SUCCESS) {
+    info("fail to send local buffer meta");
+    return -1;
+  }
+
+  info("response content: %s", conn_->buffer_);
+
+  ::memset(conn_->buffer_, 0, Conn::max_buffer_size);
+  return 0;
+}
 
 Client::~Client() {
   if (conn_ == nullptr) {
@@ -90,11 +115,10 @@ Client::~Client() {
   warn(ret, "fail to disconnect");
   e = waitEvent(RDMA_CM_EVENT_DISCONNECTED);
   warnp(e, "do not get the disconnected event");
-
-  info("disconnect with the remote side");
-
   ret = ::rdma_ack_cm_event(e);
   warnp(e, "fail to ack handle the disconnected connection event");
+
+  info("disconnect with the remote side");
 
   delete conn_;
 

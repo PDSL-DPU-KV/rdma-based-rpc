@@ -14,7 +14,7 @@ public:
   ~Client();
 
 public:
-  auto call(Conn::Handle fn) -> int;
+  auto call() -> int;
 
 private:
   auto waitEvent(rdma_cm_event_type expected) -> rdma_cm_event *;

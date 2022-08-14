@@ -16,27 +16,20 @@ public:
   ~Server();
 
 public:
-  auto registerHandle(Conn::Handle fn) -> void;
-
-public:
-  auto run() -> void;
-  auto stop() -> void;
+  auto run() -> int;
 
 private:
-  auto connManage() -> void;
-  auto wcManage() -> void;
-
-  auto onEvent() -> void;
-  auto onConnEstablished(Conn *conn) -> void;
+  static auto onConnEvent(int fd, short what, void *arg) -> void;
+  static auto onExit(int fd, short what, void *arg) -> void;
 
 private:
-  std::atomic_bool running_{false};
   addrinfo *addr_{nullptr};
   rdma_cm_id *cm_id_{nullptr};
   rdma_event_channel *ec_{nullptr};
-  Conn::Handle fn_{nullptr};
-  ibv_comp_channel *cc_{nullptr};
-  std::thread *bg_t_{nullptr}; // polling cc, fetch wc and trigger callbacks
+
+  ::event_base *base_{nullptr};
+  ::event *conn_event_{nullptr};
+  ::event *exit_event_{nullptr};
 };
 
 } // namespace rdma
