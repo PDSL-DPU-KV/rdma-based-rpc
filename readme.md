@@ -6,7 +6,7 @@ A simple example for the RDMA beginner.
 
 - Build tool: meson and ninja
 
-- Dependent library: libibverbs librdmacm
+- Dependent library: libibverbs librdmacm libevent
 
 - Dependent Environment: RDMA-enabled NIC
 
@@ -43,10 +43,11 @@ meson compile -C build
 
 - [x] basic connection management
 - [x] add send and recv verbs
-- [ ] add read and write verbs
+- [x] add read and write verbs
+- [ ] make the general rpc caller and handler
 - [ ] add better message queue and thread pool
-- [ ] make the whole architecture better for rpc
 
 ## Reference
 
 - [Note](https://branch-nephew-4b8.notion.site/Basic-RDMA-Communication-Control-Flow-40e7c82d848e4c17b36eab9f1a170195)
+- [RDMA Aware Networks Programming User Manual](https://docs.nvidia.com/networking/display/RDMAAwareProgrammingv17/RDMA+Aware+Networks+Programming+User+Manual)
