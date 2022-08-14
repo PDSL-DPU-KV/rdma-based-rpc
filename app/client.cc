@@ -2,8 +2,11 @@
 
 #include <cassert>
 #include <cstdio>
-#include <unistd.h>
 
 auto main(int argc, char *argv[]) -> int {
-  return rdma::Client(argv[1], argv[2]).call();
+  rdma::Client c(argv[1], argv[2]);
+  for (int i = 0; i < 256; i++) {
+    assert(c.call() == 0);
+  }
+  return 0;
 }

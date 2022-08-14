@@ -62,9 +62,10 @@ Conn::Conn(Type t, rdma_cm_id *id, bool use_comp_channel) : t_(t), id_(id) {
 
   // self defined connection parameters
   ::memset(&param_, 0, sizeof(param_));
-  param_.responder_resources = 1;
-  param_.initiator_depth = 1;
+  param_.responder_resources = 128;
+  param_.initiator_depth = 128;
   param_.retry_count = 3;
+  param_.rnr_retry_count = 7;
 
   info("initialize connection parameters");
 }
@@ -129,6 +130,7 @@ auto Conn::onRecv([[gnu::unused]] int fd, [[gnu::unused]] short what, void *arg)
     ::memset(conn->buffer_, 0, max_buffer_size);
     ret = conn->postRecv(conn->meta_mr_);
     check(ret, "fail to pre-post recv");
+    info("pre post for the next request");
     break;
   }
   default: {
