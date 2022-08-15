@@ -6,7 +6,8 @@ project('hello-rdma', 'cpp',
 libevent_dep = dependency('libevent')
 libibverbs_dep = dependency('libibverbs')
 librdmacm_dep = dependency('librdmacm')
-project_dependencies = [libibverbs_dep, librdmacm_dep, libevent_dep]
+pthread_dep = dependency('threads')
+project_dependencies = [libibverbs_dep, librdmacm_dep, libevent_dep, pthread_dep]
 
 project_header_files = []
 project_source_files = []

@@ -2,8 +2,6 @@
 #include "error.h"
 #include "signal.h"
 
-#include <cassert>
-
 namespace rdma {
 
 Server::Server(const char *host, const char *port) : base_(::event_base_new()) {
@@ -86,12 +84,10 @@ auto Server::onConnEvent([[gnu::unused]] int fd, [[gnu::unused]] short what,
     client_id->context = conn;
     info("accept the connection");
 
-    ret = conn->registerCompEvent(s->base_);
+    ret = conn->registerCompEvent(s->base_, &Server::onRecv);
     check(ret, "fail to register completion event");
 
     info("register the connection completion event");
-
-    conn->postRecv(conn->meta_mr_);
     break;
   }
   case RDMA_CM_EVENT_ESTABLISHED: {
@@ -110,9 +106,38 @@ auto Server::onConnEvent([[gnu::unused]] int fd, [[gnu::unused]] short what,
   }
 }
 
+auto Server::onRecv([[gnu::unused]] int fd, [[gnu::unused]] short what,
+                    void *arg) -> void {
+  Conn *conn = reinterpret_cast<Conn *>(arg);
+  ibv_cq *cq = nullptr;
+  [[gnu::unused]] void *unused_ctx = nullptr;
+  auto ret = ::ibv_get_cq_event(conn->cc_, &cq, &unused_ctx);
+  ::ibv_ack_cq_events(cq, 1);
+  if (ret != 0) {
+    info("meet an error cq event");
+    return;
+  }
+
+  ret = ::ibv_req_notify_cq(cq, 0);
+  if (ret != 0) {
+    info("fail to request completion notification on a cq");
+    return;
+  }
+
+  info("got a cq event");
+  ibv_wc wc;
+  conn->pollCq(&wc);
+  if (wc.status != IBV_WC_SUCCESS) {
+    info("meet an error wc, status: %d", wc.status);
+    return;
+  }
+  reinterpret_cast<ConnCtx *>(wc.wr_id)->advance(wc.opcode);
+}
+
 Server::~Server() {
   ::event_base_free(base_);
   ::event_free(conn_event_);
+  ::event_free(exit_event_);
 
   auto ret = ::rdma_destroy_id(cm_id_);
   warn(ret, "fail to destroy cm id");

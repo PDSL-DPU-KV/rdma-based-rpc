@@ -21,6 +21,8 @@ public:
 private:
   static auto onConnEvent(int fd, short what, void *arg) -> void;
   static auto onExit(int fd, short what, void *arg) -> void;
+  static auto onRecv([[gnu::unused]] int fd, [[gnu::unused]] short what,
+                     void *arg) -> void;
 
 private:
   addrinfo *addr_{nullptr};

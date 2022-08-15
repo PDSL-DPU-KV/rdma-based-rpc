@@ -1,8 +1,6 @@
 #include "client.h"
 #include "error.h"
 
-#include <cassert>
-
 namespace rdma {
 
 Client::Client(const char *host, const char *port) {
@@ -46,8 +44,6 @@ Client::Client(const char *host, const char *port) {
   check(ret, "fail to connect the remote side");
   e = waitEvent(RDMA_CM_EVENT_ESTABLISHED);
   checkp(e, "do not get the established connection event");
-  ::memcpy(&conn_->remote_buffer_mr_, e->param.conn.private_data,
-           sizeof(conn_->remote_buffer_mr_));
   ret = ::rdma_ack_cm_event(e);
   check(ret, "fail to handle established connection event");
 
@@ -75,34 +71,19 @@ auto Client::waitEvent(rdma_cm_event_type expected) -> rdma_cm_event * {
   return nullptr;
 }
 
-// TODO: make this a general rpc call
-auto Client::call() -> int {
-  ::memcpy(conn_->buffer_, "hello", 6);
-
-  info("request content: %s", conn_->buffer_);
-
-  ibv_wc wc;
-  conn_->postSend(conn_->meta_mr_);
-  conn_->pollCq(&wc);
-  if (wc.status != IBV_WC_SUCCESS) {
-    info("fail to send local buffer meta");
-    return -1;
-  }
-
-  info("local buffer region: address: %p, length: %d", conn_->buffer_,
-       Conn::max_buffer_size);
-
-  conn_->postRecv(conn_->local_buffer_mr_);
-  conn_->pollCq(&wc);
-  if (wc.status != IBV_WC_SUCCESS) {
-    info("fail to send local buffer meta");
-    return -1;
-  }
-
-  info("response content: %s", conn_->buffer_);
-
-  ::memset(conn_->buffer_, 0, Conn::max_buffer_size);
-  return 0;
+auto Client::call() -> void {
+  auto ctx = conn_->fetchVacantBuffer();
+  ctx->fillBuffer("hello", 5);
+  ctx->trigger();
+  do {
+    ibv_wc wc;
+    conn_->pollCq(&wc);
+    if (wc.status != IBV_WC_SUCCESS) {
+      info("meet an error wc, status: %d", wc.status);
+    } else {
+      ctx->advance(wc.opcode);
+    }
+  } while (ctx->state() != ConnCtx::Vacant);
 }
 
 Client::~Client() {
@@ -111,6 +92,7 @@ Client::~Client() {
   }
   int ret = 0;
   rdma_cm_event *e = nullptr;
+
   ret = ::rdma_disconnect(conn_->id_);
   warn(ret, "fail to disconnect");
   e = waitEvent(RDMA_CM_EVENT_DISCONNECTED);
