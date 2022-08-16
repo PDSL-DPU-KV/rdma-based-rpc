@@ -2,14 +2,12 @@
 #define __RDMA_EXAMPLE_SERVER__
 
 #include "common.h"
-#include <atomic>
-#include <thread>
 
 namespace rdma {
 
 class Server {
 public:
-  constexpr static uint32_t defautl_back_log = 8;
+  constexpr static uint32_t default_back_log = 8;
 
 public:
   Server(const char *host, const char *port);
@@ -21,8 +19,6 @@ public:
 private:
   static auto onConnEvent(int fd, short what, void *arg) -> void;
   static auto onExit(int fd, short what, void *arg) -> void;
-  static auto onRecv([[gnu::unused]] int fd, [[gnu::unused]] short what,
-                     void *arg) -> void;
 
 private:
   addrinfo *addr_{nullptr};

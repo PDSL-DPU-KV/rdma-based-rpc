@@ -14,7 +14,7 @@ public:
   ~Client();
 
 public:
-  auto call() -> void;
+  auto call(int id, int n) -> void;
 
 private:
   auto waitEvent(rdma_cm_event_type expected) -> rdma_cm_event *;
@@ -23,6 +23,8 @@ private:
   addrinfo *addr_{nullptr};
   rdma_event_channel *ec_{nullptr};
   Conn *conn_{nullptr};
+  ::event_base *base_{nullptr};
+  std::thread *bg_poller_{nullptr};
 };
 
 } // namespace rdma

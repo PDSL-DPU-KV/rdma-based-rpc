@@ -8,6 +8,7 @@ libibverbs_dep = dependency('libibverbs')
 librdmacm_dep = dependency('librdmacm')
 pthread_dep = dependency('threads')
 project_dependencies = [libibverbs_dep, librdmacm_dep, libevent_dep, pthread_dep]
+project_link_flags = ['-levent_pthreads']
 
 project_header_files = []
 project_source_files = []

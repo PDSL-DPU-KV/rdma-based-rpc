@@ -4,7 +4,7 @@
 
 namespace rdma {
 
-Server::Server(const char *host, const char *port) : base_(::event_base_new()) {
+Server::Server(const char *host, const char *port) {
   int ret = 0;
   ret = ::getaddrinfo(host, port, nullptr, &addr_);
   check(ret, "fail to parse host and port");
@@ -20,10 +20,16 @@ Server::Server(const char *host, const char *port) : base_(::event_base_new()) {
 
   ret = ::rdma_bind_addr(cm_id_, addr_->ai_addr);
   check(ret, "fail to bind address");
-  ret = ::rdma_listen(cm_id_, defautl_back_log);
+  ret = ::rdma_listen(cm_id_, default_back_log);
   check(ret, "fail to listen for connections");
 
   info("bind address and begin listening for connection requests");
+
+  ret = ::evthread_use_pthreads();
+  check(ret, "fail to open multi-thread support for libevent");
+
+  base_ = ::event_base_new();
+  checkp(base_, "fail to create event loop base");
 
   conn_event_ = ::event_new(base_, ec_->fd, EV_READ | EV_PERSIST,
                             &Server::onConnEvent, this);
@@ -31,8 +37,7 @@ Server::Server(const char *host, const char *port) : base_(::event_base_new()) {
   ret = ::event_add(conn_event_, nullptr);
   check(ret, "fail to register connection event");
 
-  exit_event_ =
-      ::event_new(base_, SIGINT, EV_SIGNAL | EV_PERSIST, &Server::onExit, this);
+  exit_event_ = ::event_new(base_, SIGINT, EV_SIGNAL, &Server::onExit, this);
   checkp(exit_event_, "fail to create exit event");
   ret = ::event_add(exit_event_, nullptr);
   check(ret, "fail to register exit event");
@@ -45,16 +50,10 @@ auto Server::run() -> int {
   return ::event_base_dispatch(base_);
 }
 
-auto Server::onExit([[gnu::unused]] int fd, [[gnu::unused]] short what,
-                    void *arg) -> void {
-  int ret = ::event_base_loopbreak(reinterpret_cast<Server *>(arg)->base_);
-  check(ret, "fail to break event loop");
-  info("event loop break");
-}
-
 auto Server::onConnEvent([[gnu::unused]] int fd, [[gnu::unused]] short what,
                          void *arg) -> void {
   Server *s = reinterpret_cast<Server *>(arg);
+
   rdma_cm_event *e;
   if (::rdma_get_cm_event(s->ec_, &e) != 0) {
     info("fail to get cm event");
@@ -76,7 +75,7 @@ auto Server::onConnEvent([[gnu::unused]] int fd, [[gnu::unused]] short what,
   case RDMA_CM_EVENT_CONNECT_REQUEST: { // throw when bad connection
     info("handle a connection request");
 
-    auto conn = new Conn(Conn::ServerSide, client_id, true);
+    auto conn = new Conn(Conn::ServerSide, client_id);
 
     auto ret = ::rdma_accept(client_id, &conn->param_);
     check(ret, "fail to accept connection");
@@ -84,7 +83,7 @@ auto Server::onConnEvent([[gnu::unused]] int fd, [[gnu::unused]] short what,
     client_id->context = conn;
     info("accept the connection");
 
-    ret = conn->registerCompEvent(s->base_, &Server::onRecv);
+    ret = conn->registerCompEvent(s->base_);
     check(ret, "fail to register completion event");
 
     info("register the connection completion event");
@@ -106,32 +105,11 @@ auto Server::onConnEvent([[gnu::unused]] int fd, [[gnu::unused]] short what,
   }
 }
 
-auto Server::onRecv([[gnu::unused]] int fd, [[gnu::unused]] short what,
-                    void *arg) -> void {
-  Conn *conn = reinterpret_cast<Conn *>(arg);
-  ibv_cq *cq = nullptr;
-  [[gnu::unused]] void *unused_ctx = nullptr;
-  auto ret = ::ibv_get_cq_event(conn->cc_, &cq, &unused_ctx);
-  ::ibv_ack_cq_events(cq, 1);
-  if (ret != 0) {
-    info("meet an error cq event");
-    return;
-  }
-
-  ret = ::ibv_req_notify_cq(cq, 0);
-  if (ret != 0) {
-    info("fail to request completion notification on a cq");
-    return;
-  }
-
-  info("got a cq event");
-  ibv_wc wc;
-  conn->pollCq(&wc);
-  if (wc.status != IBV_WC_SUCCESS) {
-    info("meet an error wc, status: %d", wc.status);
-    return;
-  }
-  reinterpret_cast<ConnCtx *>(wc.wr_id)->advance(wc.opcode);
+auto Server::onExit(int fd, short what, void *arg) -> void {
+  Server *s = reinterpret_cast<Server *>(arg);
+  auto ret = ::event_base_loopbreak(s->base_);
+  check(ret, "fail to stop event loop");
+  info("stop event loop");
 }
 
 Server::~Server() {
@@ -142,6 +120,8 @@ Server::~Server() {
   auto ret = ::rdma_destroy_id(cm_id_);
   warn(ret, "fail to destroy cm id");
   ::rdma_destroy_event_channel(ec_);
+
+  ::freeaddrinfo(addr_);
 
   info("cleanup the local resources");
 }

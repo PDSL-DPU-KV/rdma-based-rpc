@@ -48,6 +48,22 @@ Client::Client(const char *host, const char *port) {
   check(ret, "fail to handle established connection event");
 
   info("establish the connection");
+
+  ret = ::evthread_use_pthreads();
+  check(ret, "fail to open multi-thread support for libevent");
+
+  base_ = ::event_base_new();
+  checkp(base_, "fail to allocate event loop");
+
+  ret = conn_->registerCompEvent(base_);
+  check(ret, "fail to register completion event");
+
+  bg_poller_ = new std::thread([this]() {
+    info("background poller start working");
+    auto ret = ::event_base_dispatch(base_);
+    check(ret, "poller stop with error");
+    info("background poller stop working");
+  });
 }
 
 auto Client::waitEvent(rdma_cm_event_type expected) -> rdma_cm_event * {
@@ -71,19 +87,14 @@ auto Client::waitEvent(rdma_cm_event_type expected) -> rdma_cm_event * {
   return nullptr;
 }
 
-auto Client::call() -> void {
-  auto ctx = conn_->fetchVacantBuffer();
-  ctx->fillBuffer("hello", 5);
+auto Client::call(int id, int n) -> void {
+  ConnCtx *ctx = new ConnCtx(0, conn_);
+  char s[10]{};
+  snprintf(s, 10, "%d-%d", id, n);
+  ctx->fillBuffer(s, 10);
   ctx->trigger();
-  do {
-    ibv_wc wc;
-    conn_->pollCq(&wc);
-    if (wc.status != IBV_WC_SUCCESS) {
-      info("meet an error wc, status: %d", wc.status);
-    } else {
-      ctx->advance(wc.opcode);
-    }
-  } while (ctx->state() != ConnCtx::Vacant);
+  ctx->wait();
+  delete ctx;
 }
 
 Client::~Client() {
@@ -92,6 +103,14 @@ Client::~Client() {
   }
   int ret = 0;
   rdma_cm_event *e = nullptr;
+
+  ret = ::event_base_loopbreak(base_);
+  check(ret, "fail to stop event loop");
+
+  bg_poller_->join();
+  delete bg_poller_;
+
+  ::event_base_free(base_);
 
   ret = ::rdma_disconnect(conn_->id_);
   warn(ret, "fail to disconnect");

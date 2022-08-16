@@ -3,7 +3,9 @@
 
 #include <array>
 #include <atomic>
-#include <event.h>
+#include <condition_variable>
+#include <event2/event.h>
+#include <event2/thread.h>
 #include <functional>
 #include <infiniband/verbs.h>
 #include <netdb.h>
@@ -20,7 +22,7 @@ class Conn {
   friend class ConnCtx;
 
 public:
-  constexpr static uint32_t max_context_num = 8;
+  constexpr static uint32_t max_context_num = 15;
 
 public:
   enum Side : int {
@@ -33,8 +35,8 @@ private:
     return {
         .cap =
             {
-                .max_send_wr = max_context_num * 2,
-                .max_recv_wr = max_context_num * 2,
+                .max_send_wr = max_context_num + 1,
+                .max_recv_wr = max_context_num + 1,
                 .max_send_sge = 1,
                 .max_recv_sge = 1,
             },
@@ -42,28 +44,30 @@ private:
         .sq_sig_all = 0,
     };
   }
-  constexpr static uint32_t cq_capacity = max_context_num * 2;
+  constexpr static uint32_t cq_capacity = max_context_num + 1;
 
 public:
-  Conn(Side t, rdma_cm_id *id, bool use_comp_channel = false);
+  Conn(Side t, rdma_cm_id *id);
   ~Conn();
 
 public:
-  // called at server side
-  auto registerCompEvent(::event_base *base, ::event_callback_fn fn) -> int;
-  // called at client side
-  auto fetchVacantBuffer() -> ConnCtx *;
+  auto registerCompEvent(::event_base *base) -> int;
+
+private:
+  static auto onWorkComp(int fd, short what, void *arg) -> void;
 
 public:
   auto postRecv(void *ctx, ibv_mr *mr) -> void;
   auto postSend(void *ctx, ibv_mr *mr) -> void;
   auto postRead(void *ctx, ibv_mr *mr, ibv_mr *remote_mr) -> void;
   auto postWriteImm(void *ctx, ibv_mr *mr, ibv_mr *remote_mr) -> void;
-  auto pollCq(ibv_wc *wc, int n = 1) -> void;
 
 public:
   auto qpState() -> void;
   auto type() -> Side;
+
+private:
+  static auto onRecv(int fd, short what, void *arg) -> void;
 
 private:
   Side t_{ClientSide};
@@ -78,7 +82,7 @@ private:
 
   rdma_conn_param param_{};
 
-  std::array<ConnCtx *, max_context_num> ctx_{};
+  std::array<ConnCtx *, max_context_num> ctx_{}; // used in server side
 };
 
 class ConnCtx {
@@ -98,7 +102,7 @@ public:
   };
 
 public:
-  constexpr static uint32_t max_buffer_size = 1024;
+  constexpr static uint32_t max_buffer_size = 16;
 
 public:
   ConnCtx(uint32_t id, Conn *conn);
@@ -117,6 +121,10 @@ public:
   auto fillBuffer(const char *src, uint32_t len) -> void;
   auto buffer() -> const char *;
   auto state() -> State;
+  auto id() -> uint32_t;
+
+public:
+  auto wait() -> void; // called at client side
 
 private:
   uint32_t id_{0};
@@ -130,6 +138,9 @@ private:
   ibv_mr *meta_mr_{nullptr};
 
   ibv_mr remote_buffer_mr_{}; // unused in client side
+
+  std::mutex mu_{};              // used in client side
+  std::condition_variable cv_{}; // used in client side
 };
 
 } // namespace rdma
