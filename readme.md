@@ -15,7 +15,7 @@ A simple example for the RDMA beginner.
 > ```bash
 > modprobe rdma_rxe
 > # bind a normal NIC
-> sudo rdma link add rxe_0 type rxe netdev <your NIC name> 
+> sudo rdma link add rxe_0 type rxe netdev <your NIC name>
 > # use `ip addr` to get the name
 > ibv_devices # you will see a virtualized NIC named rxe_0
 > ```
@@ -46,6 +46,7 @@ meson compile -C build
 - [x] add read and write verbs
 - [ ] make the general rpc caller and handler
 - [ ] add better message queue and thread pool
+- [ ] add better memory pool
 
 ## Reference
 
