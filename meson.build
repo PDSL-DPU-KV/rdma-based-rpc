@@ -12,7 +12,10 @@ project_link_flags = ['-levent_pthreads']
 
 project_header_files = []
 project_source_files = []
-project_include_directories = [include_directories('include')]
+project_include_directories = [
+    include_directories('include/rdma'),
+    include_directories('include/util'),
+]
 
 subdir('include')
 subdir('src')

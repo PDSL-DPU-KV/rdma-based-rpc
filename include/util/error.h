@@ -5,6 +5,10 @@
 
 namespace rdma {
 
+static inline auto info(const char *msg) -> void {
+  ::fprintf(stderr, "%s\n", msg);
+}
+
 template <typename... Args>
 static inline auto info(const char *fmt, Args... args) -> void {
   ::fprintf(stderr, fmt, args...);
