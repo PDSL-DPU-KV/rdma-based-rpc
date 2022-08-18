@@ -24,8 +24,14 @@ A simple example for the RDMA beginner.
 
 ### Build
 
+We have two modes, 'poll' and 'notify'.
+
+- The former will use one thread for one connection to polling its CQ.
+
+- The later will use libevent to handle all connections' completion events.
+
 ```bash
-meson build
+meson build -Dmode=poll
 meson compile -C build
 ```
 
