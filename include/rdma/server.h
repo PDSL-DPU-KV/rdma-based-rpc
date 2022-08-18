@@ -17,17 +17,24 @@ public:
   auto run() -> int;
 
 private:
+#ifdef USE_NOTIFY
   static auto onConnEvent(int fd, short what, void *arg) -> void;
   static auto onExit(int fd, short what, void *arg) -> void;
+#endif
+
+public:
+  auto handleConnEvent() -> void;
 
 private:
   addrinfo *addr_{nullptr};
   rdma_cm_id *cm_id_{nullptr};
   rdma_event_channel *ec_{nullptr};
 
+#ifdef USE_NOTIFY
   ::event_base *base_{nullptr};
   ::event *conn_event_{nullptr};
   ::event *exit_event_{nullptr};
+#endif
 };
 
 class ServerSideCtx final : public ConnCtx {

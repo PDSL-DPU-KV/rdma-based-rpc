@@ -12,7 +12,7 @@ static inline auto info(const char *msg) -> void {
 template <typename... Args>
 static inline auto info(const char *fmt, Args... args) -> void {
   ::fprintf(stderr, fmt, args...);
-  ::putchar('\n');
+  ::fprintf(stderr, "\n");
 }
 
 static inline auto die(const char *msg) -> void {
@@ -51,6 +51,22 @@ static inline auto warnp(void *p, const char *msg) -> void {
     info(msg);
   }
 }
+
+#define TIMER                                                                  \
+  timespec start;                                                              \
+  timespec end;
+
+#define START_TIMER                                                            \
+  do {                                                                         \
+    ::clock_gettime(CLOCK_MONOTONIC, &start);                                  \
+  } while (0)
+
+#define END_TIMER                                                              \
+  do {                                                                         \
+    ::clock_gettime(CLOCK_MONOTONIC, &end);                                    \
+    printf("time usage: %lu\n", (end.tv_sec - start.tv_sec) * 1000000000 +     \
+                                    (end.tv_nsec - start.tv_nsec));            \
+  } while (0)
 
 } // namespace rdma
 

@@ -3,6 +3,7 @@
 
 #include <array>
 #include <atomic>
+#include <cassert>
 #include <condition_variable>
 #include <event2/event.h>
 #include <event2/thread.h>
@@ -11,6 +12,8 @@
 #include <netdb.h>
 #include <rdma/rdma_cma.h>
 #include <thread>
+
+#include "util.h"
 
 namespace rdma {
 
@@ -25,15 +28,15 @@ class Conn {
 
 public:
   // constexpr static uint64_t default_buffer_size = 4 * 1024 * 1024; // 4MB
-  constexpr static uint32_t cq_capacity = 16;
+  constexpr static uint32_t cq_capacity = 64;
 
 private:
   constexpr static auto defaultQpInitAttr() -> ibv_qp_init_attr {
     return {
         .cap =
             {
-                .max_send_wr = cq_capacity,
-                .max_recv_wr = cq_capacity,
+                .max_send_wr = cq_capacity * 2,
+                .max_recv_wr = cq_capacity * 2,
                 .max_send_sge = 1,
                 .max_recv_sge = 1,
             },
@@ -46,11 +49,16 @@ public:
   Conn(rdma_cm_id *id);
   ~Conn();
 
+#ifdef USE_NOTIFY
 public:
   auto registerCompEvent(::event_base *base) -> int;
 
 private:
   static auto onWorkComp(int fd, short what, void *arg) -> void;
+#endif
+
+public:
+  auto poll() -> void;
 
 public:
   auto postRecv(void *ctx, void *local_addr, uint32_t length, uint32_t lkey)
@@ -73,11 +81,18 @@ private:
   ibv_qp *qp_{nullptr};
   ibv_pd *pd_{nullptr};
   ibv_cq *cq_{nullptr};
-  ibv_comp_channel *cc_{nullptr};
 
+#ifdef USE_NOTIFY
   ::event *comp_event_{nullptr};
+  ibv_comp_channel *cc_{nullptr};
+#endif
 
   rdma_conn_param param_{};
+
+#ifdef USE_POLL
+  std::atomic_bool running_{false};
+  std::thread *bg_poller_{nullptr};
+#endif
 };
 
 class ConnCtx {
@@ -99,6 +114,8 @@ protected:
   char *buffer_{nullptr};
   uint64_t length_{0};
   ibv_mr *buffer_mr_{nullptr};
+
+  TIMER
 };
 
 } // namespace rdma

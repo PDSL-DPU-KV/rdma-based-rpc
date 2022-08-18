@@ -1,6 +1,4 @@
 #include "common.h"
-#include "error.h"
-#include <cassert>
 
 namespace rdma {
 
@@ -9,16 +7,30 @@ Conn::Conn(rdma_cm_id *id) : id_(id) {
 
   pd_ = ::ibv_alloc_pd(id_->verbs);
   checkp(pd_, "fail to allocate pd");
+
+#ifdef USE_NOTIFY
   cc_ = ::ibv_create_comp_channel(id_->verbs);
   checkp(cc_, "fail to create completion channel");
   id_->recv_cq_channel = cc_;
   id_->send_cq_channel = cc_;
   id_->pd = pd_;
+#endif
 
+#ifdef USE_NOTIFY
   cq_ = ::ibv_create_cq(id_->verbs, cq_capacity, this, cc_, 0);
+#endif
+
+#ifdef USE_POLL
+  cq_ = ::ibv_create_cq(id_->verbs, cq_capacity, this, nullptr, 0);
+#endif
+
   checkp(cq_, "fail to allocate cq");
+
+#ifdef USE_NOTIFY
   ret = ::ibv_req_notify_cq(cq_, 0);
   check(ret, "fail to request completion notification on a cq");
+#endif
+
   id_->recv_cq = cq_;
   id_->send_cq = cq_;
 
@@ -35,14 +47,42 @@ Conn::Conn(rdma_cm_id *id) : id_(id) {
 
   // self defined connection parameters
   ::memset(&param_, 0, sizeof(param_));
-  param_.responder_resources = cq_capacity;
-  param_.initiator_depth = cq_capacity;
+  param_.responder_resources = 16;
+  param_.initiator_depth = 16;
   param_.retry_count = 7;
   param_.rnr_retry_count = 7; // '7' indicates retry infinitely
 
   info("initialize connection parameters");
+
+#ifdef USE_POLL
+  bg_poller_ = new std::thread([this]() -> void {
+    running_ = true;
+    info("background poller start running");
+    while (running_) {
+      poll();
+    }
+  });
+#endif
 }
 
+auto Conn::poll() -> void {
+  static ibv_wc wc[cq_capacity];
+  auto ret = ::ibv_poll_cq(cq_, cq_capacity, wc);
+  if (ret < 0) {
+    info("poll cq error");
+    return;
+  } else if (ret == 0) {
+    // info("cq is empty");
+    return;
+  }
+
+  // we use wc.wr_id to match the Connection Context
+  for (int i = 0; i < ret; i++) {
+    reinterpret_cast<ConnCtx *>(wc[i].wr_id)->advance(wc[i].opcode);
+  }
+}
+
+#ifdef USE_NOTIFY
 auto Conn::registerCompEvent(::event_base *base) -> int {
   assert(base != nullptr);
   comp_event_ =
@@ -63,29 +103,16 @@ auto Conn::onWorkComp([[gnu::unused]] int fd, [[gnu::unused]] short what,
     info("meet an error cq event");
     return;
   }
-
+  assert(conn->cq_ == cq); // must be the same cq
   ret = ::ibv_req_notify_cq(cq, 0);
   if (ret != 0) {
     info("fail to request completion notification on a cq");
     return;
   }
 
-  ibv_wc wc[cq_capacity];
-  ::memset(wc, 0, sizeof(wc));
-  ret = ::ibv_poll_cq(conn->cq_, cq_capacity, wc);
-  if (ret < 0) {
-    info("poll cq error");
-    return;
-  } else if (ret == 0) { // this may caused by a timeout
-    info("cq is empty");
-    return;
-  }
-  
-  // we use wc.wr_id to match the Connection Context
-  for (int i = 0; i < ret; i++) {
-    reinterpret_cast<ConnCtx *>(wc[i].wr_id)->advance(wc[i].opcode);
-  }
+  conn->poll();
 }
+#endif
 
 auto Conn::postRecv(void *ctx, void *local_addr, uint32_t length, uint32_t lkey)
     -> void {
@@ -192,20 +219,30 @@ auto Conn::qpState() -> void {
 Conn::~Conn() {
   int ret = 0;
 
+#ifdef USE_NOTIFY
   if (comp_event_ != nullptr) {
     ret = ::event_del(comp_event_);
     warn(ret, "fail to deregister completion event");
     ::event_free(comp_event_);
   }
+#endif
+
+#ifdef USE_POLL
+  running_ = false;
+  bg_poller_->join();
+  delete bg_poller_;
+#endif
 
   ret = ::ibv_destroy_qp(qp_);
   warn(ret, "fail to destroy qp");
   ret = ::ibv_destroy_cq(cq_);
   warn(ret, "fail to destroy cq");
-  if (cc_ != nullptr) {
-    ret = ::ibv_destroy_comp_channel(cc_);
-    warn(ret, "fail to destroy cc");
-  }
+
+#ifdef USE_NOTIFY
+  ret = ::ibv_destroy_comp_channel(cc_);
+  warn(ret, "fail to destroy cc");
+#endif
+
   ret = ::rdma_destroy_id(id_);
   warn(ret, "fail to destroy id");
 

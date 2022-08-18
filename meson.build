@@ -3,7 +3,13 @@ project('hello-rdma', 'cpp',
     default_options: ['cpp_std=c++11']
 )
 
+mode=get_option('mode')
 add_project_arguments('-DUSE_HUGEPAGE', language: 'cpp')
+if mode == 'poll'
+  add_project_arguments('-DUSE_POLL', language: 'cpp')
+elif mode == 'notify'
+  add_project_arguments('-DUSE_NOTIFY', language: 'cpp')
+endif
 
 libevent_dep = dependency('libevent')
 libibverbs_dep = dependency('libibverbs')

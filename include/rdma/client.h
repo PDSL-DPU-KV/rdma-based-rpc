@@ -23,8 +23,11 @@ private:
   addrinfo *addr_{nullptr};
   rdma_event_channel *ec_{nullptr};
   Conn *conn_{nullptr};
+
+#ifdef USE_NOTIFY
   ::event_base *base_{nullptr};
   std::thread *bg_poller_{nullptr};
+#endif
 };
 
 class ClientSideCtx final : public ConnCtx {

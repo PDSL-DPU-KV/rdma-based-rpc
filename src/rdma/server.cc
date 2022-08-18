@@ -1,6 +1,4 @@
 #include "server.h"
-#include "error.h"
-#include <cassert>
 #include <signal.h>
 
 namespace rdma {
@@ -26,37 +24,40 @@ Server::Server(const char *host, const char *port) {
 
   info("bind address and begin listening for connection requests");
 
+#ifdef USE_NOTIFY
   ret = ::evthread_use_pthreads();
   check(ret, "fail to open multi-thread support for libevent");
-
   base_ = ::event_base_new();
   checkp(base_, "fail to create event loop base");
-
   conn_event_ = ::event_new(base_, ec_->fd, EV_READ | EV_PERSIST,
                             &Server::onConnEvent, this);
   checkp(conn_event_, "fail to create connection event");
   ret = ::event_add(conn_event_, nullptr);
   check(ret, "fail to register connection event");
-
   exit_event_ = ::event_new(base_, SIGINT, EV_SIGNAL, &Server::onExit, this);
   checkp(exit_event_, "fail to create exit event");
   ret = ::event_add(exit_event_, nullptr);
   check(ret, "fail to register exit event");
-
   info("register all events into event loop");
+#endif
 }
 
 auto Server::run() -> int {
+#ifdef USE_NOTIFY
   info("event loop running");
   return ::event_base_dispatch(base_);
+#endif
+#ifdef USE_POLL
+  while (true) {
+    handleConnEvent();
+  }
+  return 0;
+#endif
 }
 
-auto Server::onConnEvent([[gnu::unused]] int fd, [[gnu::unused]] short what,
-                         void *arg) -> void {
-  Server *s = reinterpret_cast<Server *>(arg);
-
+auto Server::handleConnEvent() -> void {
   rdma_cm_event *e;
-  if (::rdma_get_cm_event(s->ec_, &e) != 0) {
+  if (::rdma_get_cm_event(ec_, &e) != 0) {
     info("fail to get cm event");
     return;
   }
@@ -84,8 +85,10 @@ auto Server::onConnEvent([[gnu::unused]] int fd, [[gnu::unused]] short what,
     client_id->context = ctx;
     info("accept the connection");
 
-    ret = ctx->conn_->registerCompEvent(s->base_);
+#ifdef USE_NOTIFY
+    ret = ctx->conn_->registerCompEvent(base_);
     check(ret, "fail to register completion event");
+#endif
 
     info("register the connection completion event");
     break;
@@ -106,17 +109,27 @@ auto Server::onConnEvent([[gnu::unused]] int fd, [[gnu::unused]] short what,
   }
 }
 
+#ifdef USE_NOTIFY
+auto Server::onConnEvent([[gnu::unused]] int fd, [[gnu::unused]] short what,
+                         void *arg) -> void {
+  reinterpret_cast<Server *>(arg)->handleConnEvent();
+}
+
 auto Server::onExit(int fd, short what, void *arg) -> void {
   Server *s = reinterpret_cast<Server *>(arg);
   auto ret = ::event_base_loopbreak(s->base_);
   check(ret, "fail to stop event loop");
   info("stop event loop");
 }
+#endif
 
 Server::~Server() {
+
+#ifdef USE_NOTIFY
   ::event_base_free(base_);
   ::event_free(conn_event_);
   ::event_free(exit_event_);
+#endif
 
   auto ret = ::rdma_destroy_id(cm_id_);
   warn(ret, "fail to destroy cm id");

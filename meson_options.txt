@@ -1,0 +1,1 @@
+option('mode', type: 'string', value: 'notify', description: 'option for event handle mode')
