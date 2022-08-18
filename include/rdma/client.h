@@ -27,6 +27,36 @@ private:
   std::thread *bg_poller_{nullptr};
 };
 
+class ClientSideCtx final : public ConnCtx {
+  friend class Client;
+
+public:
+  enum State : int32_t {
+    Vacant,
+    SendingBufferMeta,
+    FilledWithRequest,
+    WaitingForResponse,
+    FilledWithResponse,
+  };
+
+public:
+  ClientSideCtx(Conn *conn);
+  ~ClientSideCtx();
+
+public:
+  auto advance(int32_t finished_op) -> void override;
+  auto trigger() -> void;
+
+public:
+  auto wait() -> void;
+
+private:
+  State state_{Vacant};
+  ibv_mr *meta_mr_{nullptr};
+  std::mutex mu_{};
+  std::condition_variable cv_{};
+};
+
 } // namespace rdma
 
 #endif

@@ -30,6 +30,49 @@ private:
   ::event *exit_event_{nullptr};
 };
 
+class ServerSideCtx final : public ConnCtx {
+public:
+  enum State : int32_t {
+    Vacant,
+    WaitingForBufferMeta,
+    ReadingRequest,
+    FilledWithRequest,
+    WritingResponse,
+    FilledWithResponse,
+  };
+
+public:
+  ServerSideCtx(Conn *conn);
+  ~ServerSideCtx();
+
+public:
+  auto advance(int32_t finished_op) -> void override;
+  auto prepare() -> void;
+
+public:
+  // auto clone() -> ServerSideCtx *;
+
+private:
+  State state_{Vacant}; // trace the state of ConnCtx
+  ibv_mr *meta_mr_{nullptr};
+  ibv_mr remote_buffer_mr_{};
+};
+
+class ConnWithCtx {
+  friend class Server;
+
+public:
+  constexpr static uint32_t max_context_num = Conn::cq_capacity - 1;
+
+public:
+  ConnWithCtx(rdma_cm_id *id);
+  ~ConnWithCtx();
+
+private:
+  Conn *conn_{nullptr};
+  std::array<ServerSideCtx *, max_context_num> ctx_{};
+};
+
 } // namespace rdma
 
 #endif

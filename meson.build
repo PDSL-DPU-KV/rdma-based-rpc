@@ -3,6 +3,8 @@ project('hello-rdma', 'cpp',
     default_options: ['cpp_std=c++11']
 )
 
+add_project_arguments('-DUSE_HUGEPAGE', language: 'cpp')
+
 libevent_dep = dependency('libevent')
 libibverbs_dep = dependency('libibverbs')
 librdmacm_dep = dependency('librdmacm')

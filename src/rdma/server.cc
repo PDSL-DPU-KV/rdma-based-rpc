@@ -1,6 +1,7 @@
 #include "server.h"
 #include "error.h"
-#include "signal.h"
+#include <cassert>
+#include <signal.h>
 
 namespace rdma {
 
@@ -75,15 +76,15 @@ auto Server::onConnEvent([[gnu::unused]] int fd, [[gnu::unused]] short what,
   case RDMA_CM_EVENT_CONNECT_REQUEST: { // throw when bad connection
     info("handle a connection request");
 
-    auto conn = new Conn(Conn::ServerSide, client_id);
+    auto ctx = new ConnWithCtx(client_id);
 
-    auto ret = ::rdma_accept(client_id, &conn->param_);
+    auto ret = ::rdma_accept(client_id, &ctx->conn_->param_);
     check(ret, "fail to accept connection");
 
-    client_id->context = conn;
+    client_id->context = ctx;
     info("accept the connection");
 
-    ret = conn->registerCompEvent(s->base_);
+    ret = ctx->conn_->registerCompEvent(s->base_);
     check(ret, "fail to register completion event");
 
     info("register the connection completion event");
@@ -94,7 +95,7 @@ auto Server::onConnEvent([[gnu::unused]] int fd, [[gnu::unused]] short what,
     break;
   }
   case RDMA_CM_EVENT_DISCONNECTED: {
-    delete reinterpret_cast<Conn *>(client_id->context);
+    delete reinterpret_cast<ConnWithCtx *>(client_id->context);
     info("close a connection");
     break;
   }
@@ -124,6 +125,83 @@ Server::~Server() {
   ::freeaddrinfo(addr_);
 
   info("cleanup the local resources");
+}
+
+ServerSideCtx::ServerSideCtx(Conn *conn) : ConnCtx(conn) {
+  meta_mr_ = ::ibv_reg_mr(conn->pd_, &remote_buffer_mr_, sizeof(ibv_mr),
+                          IBV_ACCESS_LOCAL_WRITE);
+  checkp(meta_mr_, "fail to register remote meta receiver");
+}
+
+ServerSideCtx::~ServerSideCtx() {
+  check(::ibv_dereg_mr(meta_mr_), "fail to deregister remote meta receiver");
+}
+
+auto ServerSideCtx::prepare() -> void {
+  state_ = WaitingForBufferMeta;
+  conn_->postRecv(this, meta_mr_->addr, meta_mr_->length, meta_mr_->lkey);
+}
+
+auto ServerSideCtx::advance(int32_t finished_op) -> void {
+  switch (finished_op) {
+  case IBV_WC_RECV: {
+    assert(state_ == WaitingForBufferMeta);
+    info("remote memory region: address: %p, length: %d",
+         remote_buffer_mr_.addr, remote_buffer_mr_.length);
+    state_ = ReadingRequest;
+    assert(buffer_ != nullptr);
+    conn_->postRead(this, buffer_mr_->addr, buffer_mr_->length,
+                    buffer_mr_->lkey, remote_buffer_mr_.addr,
+                    remote_buffer_mr_.rkey);
+    break;
+  }
+  case IBV_WC_RDMA_READ: {
+    assert(state_ == ReadingRequest);
+    info("read from remote side, request content: %s", buffer_);
+    state_ = FilledWithRequest;
+
+    {
+      // TODO: make this a self-defined handler
+      char src[16];
+      ::snprintf(src, 16, "%s-done", buffer_);
+      ::memcpy(buffer_, src, 16);
+      state_ = FilledWithResponse;
+    }
+
+    assert(state_ == FilledWithResponse);
+    info("write to remote side, response content: %s", buffer_);
+    state_ = WritingResponse;
+    conn_->postWriteImm(this, buffer_mr_->addr, buffer_mr_->length,
+                        buffer_mr_->lkey, remote_buffer_mr_.addr,
+                        remote_buffer_mr_.rkey);
+    break;
+  }
+  case IBV_WC_RDMA_WRITE: {
+    assert(state_ == WritingResponse);
+    info("write done, wait for next request");
+    prepare();
+    break;
+  }
+  default: {
+    info("unexpected wc opcode: %d", finished_op);
+    break;
+  }
+  }
+}
+
+ConnWithCtx::ConnWithCtx(rdma_cm_id *id) {
+  conn_ = new Conn(id);
+  for (uint32_t i = 0; i < max_context_num; i++) {
+    ctx_[i] = new ServerSideCtx(conn_);
+    ctx_[i]->prepare();
+  }
+}
+
+ConnWithCtx::~ConnWithCtx() {
+  for (auto p : ctx_) {
+    delete p;
+  }
+  delete conn_;
 }
 
 } // namespace rdma

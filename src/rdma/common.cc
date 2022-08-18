@@ -4,7 +4,7 @@
 
 namespace rdma {
 
-Conn::Conn(Side t, rdma_cm_id *id) : t_(t), id_(id) {
+Conn::Conn(rdma_cm_id *id) : id_(id) {
   int ret = 0;
 
   pd_ = ::ibv_alloc_pd(id_->verbs);
@@ -41,13 +41,6 @@ Conn::Conn(Side t, rdma_cm_id *id) : t_(t), id_(id) {
   param_.rnr_retry_count = 7; // '7' indicates retry infinitely
 
   info("initialize connection parameters");
-  if (t_ == ServerSide) {
-    for (uint32_t i = 0; i < max_context_num; i++) {
-      ctx_[i] = new ConnCtx(i, this);
-      ctx_[i]->prepare();
-    }
-  }
-  info("initialize connection buffers");
 }
 
 auto Conn::registerCompEvent(::event_base *base) -> int {
@@ -78,6 +71,7 @@ auto Conn::onWorkComp([[gnu::unused]] int fd, [[gnu::unused]] short what,
   }
 
   ibv_wc wc[cq_capacity];
+  ::memset(wc, 0, sizeof(wc));
   ret = ::ibv_poll_cq(conn->cq_, cq_capacity, wc);
   if (ret < 0) {
     info("poll cq error");
@@ -86,18 +80,19 @@ auto Conn::onWorkComp([[gnu::unused]] int fd, [[gnu::unused]] short what,
     info("cq is empty");
     return;
   }
-
+  
   // we use wc.wr_id to match the Connection Context
   for (int i = 0; i < ret; i++) {
     reinterpret_cast<ConnCtx *>(wc[i].wr_id)->advance(wc[i].opcode);
   }
 }
 
-auto Conn::postRecv(void *ctx, ibv_mr *mr) -> void {
+auto Conn::postRecv(void *ctx, void *local_addr, uint32_t length, uint32_t lkey)
+    -> void {
   ibv_sge sge{
-      .addr = (uintptr_t)mr->addr,
-      .length = (uint32_t)mr->length,
-      .lkey = mr->lkey,
+      .addr = (uint64_t)local_addr,
+      .length = length,
+      .lkey = lkey,
   };
   ibv_recv_wr wr{
       .wr_id = (uintptr_t)ctx,
@@ -110,11 +105,12 @@ auto Conn::postRecv(void *ctx, ibv_mr *mr) -> void {
   check(ret, "fail to post recv");
 }
 
-auto Conn::postSend(void *ctx, ibv_mr *mr) -> void {
+auto Conn::postSend(void *ctx, void *local_addr, uint32_t length, uint32_t lkey)
+    -> void {
   ibv_sge sge{
-      .addr = (uintptr_t)mr->addr,
-      .length = (uint32_t)mr->length,
-      .lkey = mr->lkey,
+      .addr = (uint64_t)local_addr,
+      .length = length,
+      .lkey = lkey,
   };
   ibv_send_wr wr{
       .wr_id = (uintptr_t)ctx,
@@ -129,11 +125,12 @@ auto Conn::postSend(void *ctx, ibv_mr *mr) -> void {
   check(ret, "fail to post send");
 }
 
-auto Conn::postRead(void *ctx, ibv_mr *mr, ibv_mr *remote_mr) -> void {
+auto Conn::postRead(void *ctx, void *local_addr, uint32_t length, uint32_t lkey,
+                    void *remote_addr, uint32_t rkey) -> void {
   ibv_sge sge{
-      .addr = (uintptr_t)mr->addr,
-      .length = (uint32_t)mr->length,
-      .lkey = mr->lkey,
+      .addr = (uint64_t)local_addr,
+      .length = length,
+      .lkey = lkey,
   };
   ibv_send_wr wr{
       .wr_id = (uintptr_t)ctx,
@@ -144,8 +141,8 @@ auto Conn::postRead(void *ctx, ibv_mr *mr, ibv_mr *remote_mr) -> void {
       .send_flags = IBV_SEND_SIGNALED,
       .wr{
           .rdma{
-              .remote_addr = (uintptr_t)remote_mr->addr,
-              .rkey = remote_mr->rkey,
+              .remote_addr = (uint64_t)remote_addr,
+              .rkey = rkey,
           },
       },
   };
@@ -154,11 +151,13 @@ auto Conn::postRead(void *ctx, ibv_mr *mr, ibv_mr *remote_mr) -> void {
   check(ret, "fail to post read");
 }
 
-auto Conn::postWriteImm(void *ctx, ibv_mr *mr, ibv_mr *remote_mr) -> void {
+auto Conn::postWriteImm(void *ctx, void *local_addr, uint32_t length,
+                        uint32_t lkey, void *remote_addr, uint32_t rkey)
+    -> void {
   ibv_sge sge{
-      .addr = (uintptr_t)mr->addr,
-      .length = (uint32_t)mr->length,
-      .lkey = mr->lkey,
+      .addr = (uint64_t)local_addr,
+      .length = length,
+      .lkey = lkey,
   };
   ibv_send_wr wr{
       .wr_id = (uintptr_t)ctx,
@@ -170,8 +169,8 @@ auto Conn::postWriteImm(void *ctx, ibv_mr *mr, ibv_mr *remote_mr) -> void {
       .imm_data = 0x1234, // TODO: use imm_data to pass some meta data
       .wr{
           .rdma{
-              .remote_addr = (uintptr_t)remote_mr->addr,
-              .rkey = remote_mr->rkey,
+              .remote_addr = (uint64_t)remote_addr,
+              .rkey = rkey,
           },
       },
   };
@@ -189,8 +188,6 @@ auto Conn::qpState() -> void {
                &init_attr);
   return;
 }
-
-auto Conn::type() -> Side { return t_; }
 
 Conn::~Conn() {
   int ret = 0;
@@ -212,167 +209,24 @@ Conn::~Conn() {
   ret = ::rdma_destroy_id(id_);
   warn(ret, "fail to destroy id");
 
-  for (auto p : ctx_) {
-    delete p;
-  }
-
   ret = ::ibv_dealloc_pd(pd_);
   warn(ret, "fail to deallocate pd");
 
   info("cleanup connection resources");
 }
 
-ConnCtx::ConnCtx(uint32_t id, Conn *conn) : id_(id), conn_(conn) {
+ConnCtx::ConnCtx(Conn *conn) : conn_(conn) {
   buffer_ = new char[max_buffer_size];
-  checkp(buffer_, "fail to allocate rpc buffer");
-
-  local_buffer_mr_ =
-      ::ibv_reg_mr(conn->pd_, buffer_, max_buffer_size,
-                   IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |
-                       IBV_ACCESS_REMOTE_READ);
-  checkp(local_buffer_mr_, "fail to register rpc buffer");
-
-  switch (conn->type()) {
-  case Conn::ClientSide: {
-    meta_mr_ = ::ibv_reg_mr(conn->pd_, local_buffer_mr_, sizeof(ibv_mr),
-                            IBV_ACCESS_LOCAL_WRITE);
-    checkp(meta_mr_, "fail to register local meta sender");
-    break;
-  }
-  case Conn::ServerSide: {
-    meta_mr_ = ::ibv_reg_mr(conn->pd_, &remote_buffer_mr_, sizeof(ibv_mr),
-                            IBV_ACCESS_LOCAL_WRITE);
-    checkp(meta_mr_, "fail to register remote meta receiver");
-    break;
-  }
-  }
+  buffer_mr_ = ::ibv_reg_mr(conn->pd_, buffer_, max_buffer_size,
+                            IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |
+                                IBV_ACCESS_REMOTE_READ);
+  checkp(buffer_mr_, "fail to register rpc buffer");
 }
 
-auto ConnCtx::fillBuffer(const char *src, uint32_t len) -> void {
-  assert(len <= max_buffer_size);
-  if (state_ == Vacant and conn_->t_ == Conn::ClientSide) {
-    state_ = FilledWithRequest;
-  } else if (state_ == FilledWithRequest and conn_->t_ == Conn::ServerSide) {
-    state_ = FilledWithResponse;
-  } else {
-    assert(false);
-  }
-  ::memcpy(buffer_, src, len);
-}
-
-auto ConnCtx::trigger() -> void {
-  assert(state_ == FilledWithRequest);
-  info("local memory region: address: %p, length: %d", local_buffer_mr_->addr,
-       local_buffer_mr_->length);
-  state_ = SendingBufferMeta;
-  conn_->postSend(this, meta_mr_);
-}
-
-auto ConnCtx::prepare() -> void {
-  assert(state_ == Vacant);
-  state_ = WaitingForBufferMeta;
-  conn_->postRecv(this, meta_mr_);
-}
-
-auto ConnCtx::buffer() -> const char * { return buffer_; }
-
-auto ConnCtx::state() -> State { return state_; }
-
-auto ConnCtx::id() -> uint32_t { return id_; }
-
-auto ConnCtx::wait() -> void {
-  std::unique_lock<std::mutex> l(mu_);
-  cv_.wait(l, [this] { return state_ == Vacant; });
-}
-
-auto ConnCtx::advance(int32_t finished_op) -> void {
-  switch (conn_->type()) {
-  case Conn::ServerSide: {
-    advanceServerSide(finished_op);
-    break;
-  }
-  case Conn::ClientSide: {
-    advanceClientSide(finished_op);
-    break;
-  }
-  }
-}
-
-auto ConnCtx::advanceServerSide(int32_t finished_op) -> void {
-  switch (finished_op) {
-  case IBV_WC_RECV: {
-    assert(state_ == WaitingForBufferMeta);
-    info("remote memory region: address: %p, length: %d",
-         remote_buffer_mr_.addr, remote_buffer_mr_.length);
-    state_ = ReadingRequest;
-    conn_->postRead(this, local_buffer_mr_, &remote_buffer_mr_);
-    break;
-  }
-  case IBV_WC_RDMA_READ: {
-    assert(state_ == ReadingRequest);
-    info("read from remote side, request content: %s", buffer_);
-    state_ = FilledWithRequest;
-
-    {
-      // TODO: make this a self-defined handler
-      char s[10]{};
-      snprintf(s, 10, "%s-done", buffer_);
-      fillBuffer(s, 10);
-    }
-
-    assert(state_ == FilledWithResponse);
-    info("write to remote side, response content: %s", buffer_);
-    state_ = WritingResponse;
-    conn_->postWriteImm(this, local_buffer_mr_, &remote_buffer_mr_);
-    break;
-  }
-  case IBV_WC_RDMA_WRITE: {
-    assert(state_ == WritingResponse);
-    info("write done, wait for next request");
-    state_ = WaitingForBufferMeta;
-    conn_->postRecv(this, meta_mr_);
-    break;
-  }
-  default: {
-    info("unexpected wc opcode: %d", finished_op);
-    break;
-  }
-  }
-}
-
-auto ConnCtx::advanceClientSide(int32_t finished_op) -> void {
-  switch (finished_op) {
-  case IBV_WC_SEND: {
-    assert(state_ == SendingBufferMeta);
-    info("send request buffer meta to the remote");
-    state_ = WaitingForResponse;
-    conn_->postRecv(this, local_buffer_mr_);
-    break;
-  }
-  case IBV_WC_RECV_RDMA_WITH_IMM: {
-    assert(state_ == WaitingForResponse);
-    info("receive from remote, response content: %s", buffer_);
-    state_ = FilledWithResponse;
-    {
-      // TODO: make this a self-defined callback
-      state_ = Vacant;
-      cv_.notify_all();
-    }
-    break;
-  }
-  default: {
-    info("unexpected wc opcode: %d", finished_op);
-    break;
-  }
-  }
-}
+auto ConnCtx::buffer() -> char * { return buffer_; }
 
 ConnCtx::~ConnCtx() {
-  int ret = 0;
-  ret = ::ibv_dereg_mr(local_buffer_mr_);
-  warn(ret, "fail to deregister rpc buffer");
-  ret = ::ibv_dereg_mr(meta_mr_);
-  warn(ret, "fail to deregister remote meta receiver");
+  check(::ibv_dereg_mr(buffer_mr_), "fail to deregister buffer mr");
   delete[] buffer_;
 }
 

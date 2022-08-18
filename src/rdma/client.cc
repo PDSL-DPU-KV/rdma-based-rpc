@@ -1,5 +1,6 @@
 #include "client.h"
 #include "error.h"
+#include <cassert>
 
 namespace rdma {
 
@@ -39,7 +40,7 @@ Client::Client(const char *host, const char *port) {
 
   info("resolve the route");
 
-  conn_ = new Conn(Conn::ClientSide, id);
+  conn_ = new Conn(id);
   ret = ::rdma_connect(id, &conn_->param_);
   check(ret, "fail to connect the remote side");
   e = waitEvent(RDMA_CM_EVENT_ESTABLISHED);
@@ -88,10 +89,11 @@ auto Client::waitEvent(rdma_cm_event_type expected) -> rdma_cm_event * {
 }
 
 auto Client::call(int id, int n) -> void {
-  ConnCtx *ctx = new ConnCtx(0, conn_);
-  char s[10]{};
-  snprintf(s, 10, "%d-%d", id, n);
-  ctx->fillBuffer(s, 10);
+  auto ctx = new ClientSideCtx(conn_);
+  char src[16];
+  ::snprintf(src, 16, "%d-%d", id, n);
+  ::memcpy(ctx->buffer(), src, sizeof(src));
+  ctx->state_ = ClientSideCtx::FilledWithRequest;
   ctx->trigger();
   ctx->wait();
   delete ctx;
@@ -127,6 +129,57 @@ Client::~Client() {
   ::freeaddrinfo(addr_);
 
   info("cleanup the local resources");
+}
+
+ClientSideCtx::ClientSideCtx(Conn *conn) : ConnCtx(conn) {
+  meta_mr_ = ::ibv_reg_mr(conn->pd_, buffer_mr_, sizeof(ibv_mr),
+                          IBV_ACCESS_LOCAL_WRITE);
+  checkp(meta_mr_, "fail to register local meta sender");
+}
+
+auto ClientSideCtx::trigger() -> void {
+  assert(state_ == FilledWithRequest);
+  info("local memory region: address: %p, length: %d", buffer_mr_->addr,
+       buffer_mr_->length);
+  state_ = SendingBufferMeta;
+  conn_->postSend(this, meta_mr_->addr, meta_mr_->length, meta_mr_->lkey);
+}
+
+auto ClientSideCtx::advance(int32_t finished_op) -> void {
+  switch (finished_op) {
+  case IBV_WC_SEND: {
+    assert(state_ == SendingBufferMeta);
+    info("send request buffer meta to the remote");
+    state_ = WaitingForResponse;
+    conn_->postRecv(this, buffer_mr_->addr, buffer_mr_->length,
+                    buffer_mr_->lkey);
+    break;
+  }
+  case IBV_WC_RECV_RDMA_WITH_IMM: {
+    assert(state_ == WaitingForResponse);
+    info("receive from remote, response content: %s", buffer_);
+    state_ = FilledWithResponse;
+    {
+      // TODO: make this a self-defined callback
+      state_ = Vacant;
+      cv_.notify_all();
+    }
+    break;
+  }
+  default: {
+    info("unexpected wc opcode: %d", finished_op);
+    break;
+  }
+  }
+}
+
+auto ClientSideCtx::wait() -> void {
+  std::unique_lock<std::mutex> l(mu_);
+  cv_.wait(l, [this]() -> bool { return state_ == Vacant; });
+}
+
+ClientSideCtx::~ClientSideCtx() {
+  check(::ibv_dereg_mr(meta_mr_), "fail to deregister remote meta receiver");
 }
 
 } // namespace rdma
