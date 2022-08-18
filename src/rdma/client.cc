@@ -1,6 +1,4 @@
 #include "client.h"
-#include "error.h"
-#include <cassert>
 
 namespace rdma {
 
@@ -50,21 +48,19 @@ Client::Client(const char *host, const char *port) {
 
   info("establish the connection");
 
+#ifdef USE_NOTIFY
   ret = ::evthread_use_pthreads();
   check(ret, "fail to open multi-thread support for libevent");
-
   base_ = ::event_base_new();
   checkp(base_, "fail to allocate event loop");
-
   ret = conn_->registerCompEvent(base_);
   check(ret, "fail to register completion event");
-
-  bg_poller_ = new std::thread([this]() {
+  bg_poller_ = new std::thread([this]() -> void {
     info("background poller start working");
-    auto ret = ::event_base_dispatch(base_);
-    check(ret, "poller stop with error");
+    check(::event_base_dispatch(base_), "poller stop with error");
     info("background poller stop working");
   });
+#endif
 }
 
 auto Client::waitEvent(rdma_cm_event_type expected) -> rdma_cm_event * {
@@ -106,13 +102,13 @@ Client::~Client() {
   int ret = 0;
   rdma_cm_event *e = nullptr;
 
+#ifdef USE_NOTIFY
   ret = ::event_base_loopbreak(base_);
   check(ret, "fail to stop event loop");
-
   bg_poller_->join();
   delete bg_poller_;
-
   ::event_base_free(base_);
+#endif
 
   ret = ::rdma_disconnect(conn_->id_);
   warn(ret, "fail to disconnect");
@@ -142,7 +138,10 @@ auto ClientSideCtx::trigger() -> void {
   info("local memory region: address: %p, length: %d", buffer_mr_->addr,
        buffer_mr_->length);
   state_ = SendingBufferMeta;
+
   conn_->postSend(this, meta_mr_->addr, meta_mr_->length, meta_mr_->lkey);
+  // NOTICE: must pre-post at here
+  conn_->postRecv(this, buffer_mr_->addr, buffer_mr_->length, buffer_mr_->lkey);
 }
 
 auto ClientSideCtx::advance(int32_t finished_op) -> void {
@@ -151,8 +150,6 @@ auto ClientSideCtx::advance(int32_t finished_op) -> void {
     assert(state_ == SendingBufferMeta);
     info("send request buffer meta to the remote");
     state_ = WaitingForResponse;
-    conn_->postRecv(this, buffer_mr_->addr, buffer_mr_->length,
-                    buffer_mr_->lkey);
     break;
   }
   case IBV_WC_RECV_RDMA_WITH_IMM: {
