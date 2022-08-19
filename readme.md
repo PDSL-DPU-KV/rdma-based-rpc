@@ -4,11 +4,11 @@ A simple example for the RDMA beginner.
 
 ## Prerequisite
 
-- Build tool: meson and ninja
+- Build tool: meson, ninja
 
-- Dependent library: libibverbs librdmacm libevent
+- Dependent library: libibverbs, librdmacm, libevent, pthread
 
-- Dependent Environment: RDMA-enabled NIC
+- Dependent Environment: RDMA-enabled NIC, hugepages
 
 > If not, use Soft-RoCE instead. Follow the commands bellow.
 >
@@ -30,8 +30,10 @@ We have two modes, 'poll' and 'notify'.
 
 - The later will use libevent to handle all connections' completion events.
 
+It is better to use hugepages for NIC because of IOMMU. You can use option 'use_hugepage' to use anonymous hugepages as buffer.
+
 ```bash
-meson build -Dmode=poll
+meson build -Dmode=poll -Duse_hugepage=enabled
 meson compile -C build
 ```
 
@@ -50,9 +52,9 @@ meson compile -C build
 - [x] basic connection management
 - [x] add send and recv verbs
 - [x] add read and write verbs
-- [ ] make the general rpc caller and handler
-- [ ] add better message queue and thread pool
-- [ ] add better memory pool
+- [x] add ring for multi-client-calls.
+- [ ] add thread pool
+- [ ] add memory pool
 
 ## Reference
 
