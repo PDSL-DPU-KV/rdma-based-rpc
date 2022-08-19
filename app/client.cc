@@ -5,7 +5,7 @@
 auto main(int argc, char *argv[]) -> int {
   rdma::Client c(argv[1], argv[2]);
   auto fn = [&c](int id) {
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < 10; i++) {
       c.call(id, i);
     }
     printf("done\n");

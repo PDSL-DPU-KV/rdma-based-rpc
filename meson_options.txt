@@ -1,1 +1,2 @@
-option('mode', type: 'string', value: 'notify', description: 'option for event handle mode')
+option('mode', type: 'string', value: '', description: 'option for event handle mode')
+option('use_hugepage', type: 'feature', value: 'disabled', description: 'option for using hugepage')

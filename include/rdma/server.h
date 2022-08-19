@@ -5,38 +5,6 @@
 
 namespace rdma {
 
-class Server {
-public:
-  constexpr static uint32_t default_back_log = 8;
-
-public:
-  Server(const char *host, const char *port);
-  ~Server();
-
-public:
-  auto run() -> int;
-
-private:
-#ifdef USE_NOTIFY
-  static auto onConnEvent(int fd, short what, void *arg) -> void;
-  static auto onExit(int fd, short what, void *arg) -> void;
-#endif
-
-public:
-  auto handleConnEvent() -> void;
-
-private:
-  addrinfo *addr_{nullptr};
-  rdma_cm_id *cm_id_{nullptr};
-  rdma_event_channel *ec_{nullptr};
-
-#ifdef USE_NOTIFY
-  ::event_base *base_{nullptr};
-  ::event *conn_event_{nullptr};
-  ::event *exit_event_{nullptr};
-#endif
-};
-
 class ServerSideCtx final : public ConnCtx {
 public:
   enum State : int32_t {
@@ -49,7 +17,7 @@ public:
   };
 
 public:
-  ServerSideCtx(Conn *conn);
+  ServerSideCtx(Conn *conn, void *buffer, uint32_t length);
   ~ServerSideCtx();
 
 public:
@@ -62,7 +30,7 @@ public:
 private:
   State state_{Vacant}; // trace the state of ConnCtx
   ibv_mr *meta_mr_{nullptr};
-  ibv_mr remote_buffer_mr_{};
+  Meta remote_meta_{};
 };
 
 class ConnWithCtx {
@@ -78,6 +46,34 @@ public:
 private:
   Conn *conn_{nullptr};
   std::array<ServerSideCtx *, max_context_num> ctx_{};
+};
+
+class Server {
+public:
+  constexpr static uint32_t default_back_log = 8;
+
+public:
+  Server(const char *host, const char *port);
+  ~Server();
+
+public:
+  auto run() -> int;
+
+private:
+  static auto onConnEvent(int fd, short what, void *arg) -> void;
+  static auto onExit(int fd, short what, void *arg) -> void;
+
+public:
+  auto handleConnEvent() -> void;
+
+private:
+  addrinfo *addr_{nullptr};
+  rdma_cm_id *cm_id_{nullptr};
+  rdma_event_channel *ec_{nullptr};
+
+  ::event_base *base_{nullptr};
+  ::event *conn_event_{nullptr};
+  ::event *exit_event_{nullptr};
 };
 
 } // namespace rdma

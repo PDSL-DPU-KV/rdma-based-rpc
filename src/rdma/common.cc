@@ -2,7 +2,8 @@
 
 namespace rdma {
 
-Conn::Conn(rdma_cm_id *id) : id_(id) {
+Conn::Conn(rdma_cm_id *id, uint32_t n_buffer_page)
+    : id_(id), n_buffer_page_(n_buffer_page) {
   int ret = 0;
 
   pd_ = ::ibv_alloc_pd(id_->verbs);
@@ -45,12 +46,23 @@ Conn::Conn(rdma_cm_id *id) : id_(id) {
 
   info("create queue pair");
 
+  buffer_ = alloc(n_buffer_page_ * buffer_page_size);
+  checkp(buffer_, "fail to allocate buffer");
+  buffer_mr_ = ibv_reg_mr(pd_, buffer_, n_buffer_page_ * buffer_page_size,
+                          IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ |
+                              IBV_ACCESS_REMOTE_WRITE);
+  checkp(buffer_mr_, "fail to allocate buffer memory region");
+
+  info("create connection buffer");
+
   // self defined connection parameters
   ::memset(&param_, 0, sizeof(param_));
   param_.responder_resources = 16;
   param_.initiator_depth = 16;
   param_.retry_count = 7;
   param_.rnr_retry_count = 7; // '7' indicates retry infinitely
+  param_.private_data = (void *)&buffer_mr_->rkey;
+  param_.private_data_len = sizeof(buffer_mr_->rkey);
 
   info("initialize connection parameters");
 
@@ -213,7 +225,11 @@ auto Conn::qpState() -> void {
                IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT |
                    IBV_QP_RNR_RETRY,
                &init_attr);
-  return;
+}
+
+auto Conn::bufferPage(uint32_t id) -> void * {
+  assert(id < n_buffer_page_);
+  return buffer_pages_[id];
 }
 
 Conn::~Conn() {
@@ -246,25 +262,22 @@ Conn::~Conn() {
   ret = ::rdma_destroy_id(id_);
   warn(ret, "fail to destroy id");
 
+  ret = ::ibv_dereg_mr(buffer_mr_);
+  warn(ret, "fail to deregister buffer memory region");
+
   ret = ::ibv_dealloc_pd(pd_);
   warn(ret, "fail to deallocate pd");
+
+  dealloc(buffer_, n_buffer_page_ * buffer_page_size);
 
   info("cleanup connection resources");
 }
 
-ConnCtx::ConnCtx(Conn *conn) : conn_(conn) {
-  buffer_ = new char[max_buffer_size];
-  buffer_mr_ = ::ibv_reg_mr(conn->pd_, buffer_, max_buffer_size,
-                            IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |
-                                IBV_ACCESS_REMOTE_READ);
-  checkp(buffer_mr_, "fail to register rpc buffer");
+ConnCtx::ConnCtx(Conn *conn, void *buffer, uint64_t length)
+    : conn_(conn), buffer_(buffer), length_(length) {
+  ::memset(buffer_, 0, length_);
 }
 
-auto ConnCtx::buffer() -> char * { return buffer_; }
-
-ConnCtx::~ConnCtx() {
-  check(::ibv_dereg_mr(buffer_mr_), "fail to deregister buffer mr");
-  delete[] buffer_;
-}
+auto ConnCtx::buffer() -> void * { return (buffer_); }
 
 } // namespace rdma

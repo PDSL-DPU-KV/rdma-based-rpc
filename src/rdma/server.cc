@@ -24,7 +24,6 @@ Server::Server(const char *host, const char *port) {
 
   info("bind address and begin listening for connection requests");
 
-#ifdef USE_NOTIFY
   ret = ::evthread_use_pthreads();
   check(ret, "fail to open multi-thread support for libevent");
   base_ = ::event_base_new();
@@ -39,20 +38,11 @@ Server::Server(const char *host, const char *port) {
   ret = ::event_add(exit_event_, nullptr);
   check(ret, "fail to register exit event");
   info("register all events into event loop");
-#endif
 }
 
 auto Server::run() -> int {
-#ifdef USE_NOTIFY
   info("event loop running");
   return ::event_base_dispatch(base_);
-#endif
-#ifdef USE_POLL
-  while (true) {
-    handleConnEvent();
-  }
-  return 0;
-#endif
 }
 
 auto Server::handleConnEvent() -> void {
@@ -70,8 +60,6 @@ auto Server::handleConnEvent() -> void {
   }
 
   auto client_id = e->id;
-  auto ret = ::rdma_ack_cm_event(e);
-  warn(ret, "fail to ack event");
 
   switch (e->event) {
   case RDMA_CM_EVENT_CONNECT_REQUEST: { // throw when bad connection
@@ -81,6 +69,8 @@ auto Server::handleConnEvent() -> void {
 
     auto ret = ::rdma_accept(client_id, &ctx->conn_->param_);
     check(ret, "fail to accept connection");
+
+    ctx->conn_->remote_buffer_key_ = *(uint32_t *)e->param.conn.private_data;
 
     client_id->context = ctx;
     info("accept the connection");
@@ -107,9 +97,11 @@ auto Server::handleConnEvent() -> void {
     break;
   }
   }
+
+  auto ret = ::rdma_ack_cm_event(e);
+  warn(ret, "fail to ack event");
 }
 
-#ifdef USE_NOTIFY
 auto Server::onConnEvent([[gnu::unused]] int fd, [[gnu::unused]] short what,
                          void *arg) -> void {
   reinterpret_cast<Server *>(arg)->handleConnEvent();
@@ -121,15 +113,11 @@ auto Server::onExit(int fd, short what, void *arg) -> void {
   check(ret, "fail to stop event loop");
   info("stop event loop");
 }
-#endif
 
 Server::~Server() {
-
-#ifdef USE_NOTIFY
   ::event_base_free(base_);
   ::event_free(conn_event_);
   ::event_free(exit_event_);
-#endif
 
   auto ret = ::rdma_destroy_id(cm_id_);
   warn(ret, "fail to destroy cm id");
@@ -140,8 +128,9 @@ Server::~Server() {
   info("cleanup the local resources");
 }
 
-ServerSideCtx::ServerSideCtx(Conn *conn) : ConnCtx(conn) {
-  meta_mr_ = ::ibv_reg_mr(conn->pd_, &remote_buffer_mr_, sizeof(ibv_mr),
+ServerSideCtx::ServerSideCtx(Conn *conn, void *buffer, uint32_t length)
+    : ConnCtx(conn, buffer, length) {
+  meta_mr_ = ::ibv_reg_mr(conn->pd_, &remote_meta_, sizeof(Meta),
                           IBV_ACCESS_LOCAL_WRITE);
   checkp(meta_mr_, "fail to register remote meta receiver");
 }
@@ -159,13 +148,12 @@ auto ServerSideCtx::advance(int32_t finished_op) -> void {
   switch (finished_op) {
   case IBV_WC_RECV: {
     assert(state_ == WaitingForBufferMeta);
-    info("remote memory region: address: %p, length: %d",
-         remote_buffer_mr_.addr, remote_buffer_mr_.length);
+    info("remote memory region: address: %p, length: %d", remote_meta_.addr_,
+         remote_meta_.length_);
     state_ = ReadingRequest;
     assert(buffer_ != nullptr);
-    conn_->postRead(this, buffer_mr_->addr, buffer_mr_->length,
-                    buffer_mr_->lkey, remote_buffer_mr_.addr,
-                    remote_buffer_mr_.rkey);
+    conn_->postRead(this, buffer_, length_, conn_->buffer_mr_->lkey,
+                    remote_meta_.addr_, conn_->remote_buffer_key_);
     break;
   }
   case IBV_WC_RDMA_READ: {
@@ -176,7 +164,7 @@ auto ServerSideCtx::advance(int32_t finished_op) -> void {
     {
       // TODO: make this a self-defined handler
       char src[16];
-      ::snprintf(src, 16, "%s-done", buffer_);
+      ::snprintf(src, 16, "%s-done", (char *)buffer_);
       ::memcpy(buffer_, src, 16);
       state_ = FilledWithResponse;
     }
@@ -184,9 +172,8 @@ auto ServerSideCtx::advance(int32_t finished_op) -> void {
     assert(state_ == FilledWithResponse);
     info("write to remote side, response content: %s", buffer_);
     state_ = WritingResponse;
-    conn_->postWriteImm(this, buffer_mr_->addr, buffer_mr_->length,
-                        buffer_mr_->lkey, remote_buffer_mr_.addr,
-                        remote_buffer_mr_.rkey);
+    conn_->postWriteImm(this, buffer_, length_, conn_->buffer_mr_->lkey,
+                        remote_meta_.addr_, conn_->remote_buffer_key_);
     break;
   }
   case IBV_WC_RDMA_WRITE: {
@@ -203,9 +190,10 @@ auto ServerSideCtx::advance(int32_t finished_op) -> void {
 }
 
 ConnWithCtx::ConnWithCtx(rdma_cm_id *id) {
-  conn_ = new Conn(id);
+  conn_ = new Conn(id, max_context_num);
   for (uint32_t i = 0; i < max_context_num; i++) {
-    ctx_[i] = new ServerSideCtx(conn_);
+    ctx_[i] =
+        new ServerSideCtx(conn_, conn_->bufferPage(i), Conn::buffer_page_size);
     ctx_[i]->prepare();
   }
 }

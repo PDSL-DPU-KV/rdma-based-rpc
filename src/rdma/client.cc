@@ -38,15 +38,21 @@ Client::Client(const char *host, const char *port) {
 
   info("resolve the route");
 
-  conn_ = new Conn(id);
+  conn_ = new Conn(id, max_context_num);
   ret = ::rdma_connect(id, &conn_->param_);
   check(ret, "fail to connect the remote side");
   e = waitEvent(RDMA_CM_EVENT_ESTABLISHED);
   checkp(e, "do not get the established connection event");
+  conn_->remote_buffer_key_ = *(uint32_t *)e->param.conn.private_data;
   ret = ::rdma_ack_cm_event(e);
   check(ret, "fail to handle established connection event");
 
   info("establish the connection");
+
+  for (uint32_t i = 0; i < max_context_num; i++) {
+    ctx_ring_.push(
+        new ClientSideCtx(conn_, conn_->bufferPage(i), Conn::buffer_page_size));
+  }
 
 #ifdef USE_NOTIFY
   ret = ::evthread_use_pthreads();
@@ -85,14 +91,14 @@ auto Client::waitEvent(rdma_cm_event_type expected) -> rdma_cm_event * {
 }
 
 auto Client::call(int id, int n) -> void {
-  auto ctx = new ClientSideCtx(conn_);
+  auto ctx = ctx_ring_.pop();
   char src[16];
   ::snprintf(src, 16, "%d-%d", id, n);
   ::memcpy(ctx->buffer(), src, sizeof(src));
   ctx->state_ = ClientSideCtx::FilledWithRequest;
   ctx->trigger();
   ctx->wait();
-  delete ctx;
+  ctx_ring_.push(ctx);
 }
 
 Client::~Client() {
@@ -109,6 +115,11 @@ Client::~Client() {
   delete bg_poller_;
   ::event_base_free(base_);
 #endif
+
+  for (uint32_t i = 0; i < max_context_num; i++) {
+    auto ctx = ctx_ring_.pop();
+    delete ctx;
+  }
 
   ret = ::rdma_disconnect(conn_->id_);
   warn(ret, "fail to disconnect");
@@ -127,21 +138,21 @@ Client::~Client() {
   info("cleanup the local resources");
 }
 
-ClientSideCtx::ClientSideCtx(Conn *conn) : ConnCtx(conn) {
-  meta_mr_ = ::ibv_reg_mr(conn->pd_, buffer_mr_, sizeof(ibv_mr),
-                          IBV_ACCESS_LOCAL_WRITE);
+ClientSideCtx::ClientSideCtx(Conn *conn, void *buffer, uint32_t size)
+    : ConnCtx(conn, buffer, size) {
+  meta_mr_ =
+      ::ibv_reg_mr(conn->pd_, &local_, sizeof(Meta), IBV_ACCESS_LOCAL_WRITE);
   checkp(meta_mr_, "fail to register local meta sender");
 }
 
 auto ClientSideCtx::trigger() -> void {
   assert(state_ == FilledWithRequest);
-  info("local memory region: address: %p, length: %d", buffer_mr_->addr,
-       buffer_mr_->length);
+  info("local memory region: address: %p, length: %d", buffer_, length_);
   state_ = SendingBufferMeta;
 
   conn_->postSend(this, meta_mr_->addr, meta_mr_->length, meta_mr_->lkey);
   // NOTICE: must pre-post at here
-  conn_->postRecv(this, buffer_mr_->addr, buffer_mr_->length, buffer_mr_->lkey);
+  conn_->postRecv(this, buffer_, length_, conn_->buffer_mr_->lkey);
 }
 
 auto ClientSideCtx::advance(int32_t finished_op) -> void {

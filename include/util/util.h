@@ -52,6 +52,7 @@ static inline auto warnp(void *p, const char *msg) -> void {
   }
 }
 
+#ifdef USE_TIMER
 #define TIMER                                                                  \
   timespec start;                                                              \
   timespec end;
@@ -67,6 +68,14 @@ static inline auto warnp(void *p, const char *msg) -> void {
     printf("time usage: %lu\n", (end.tv_sec - start.tv_sec) * 1000000000 +     \
                                     (end.tv_nsec - start.tv_nsec));            \
   } while (0)
+#else
+#define TIMER
+#define START_TIMER
+#define END_TIMER
+#endif
+
+auto alloc(uint32_t len) -> void *;
+auto dealloc(void *p, uint32_t len) -> void;
 
 } // namespace rdma
 

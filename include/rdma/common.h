@@ -1,6 +1,7 @@
 #ifndef __RDMA_EXAMPLE_COMMON__
 #define __RDMA_EXAMPLE_COMMON__
 
+#include "util.h"
 #include <array>
 #include <atomic>
 #include <cassert>
@@ -12,8 +13,6 @@
 #include <netdb.h>
 #include <rdma/rdma_cma.h>
 #include <thread>
-
-#include "util.h"
 
 namespace rdma {
 
@@ -29,6 +28,8 @@ class Conn {
 public:
   // constexpr static uint64_t default_buffer_size = 4 * 1024 * 1024; // 4MB
   constexpr static uint32_t cq_capacity = 64;
+  constexpr static uint32_t buffer_page_size = 1024; // 1KB
+  using BufferPage = char[buffer_page_size];
 
 private:
   constexpr static auto defaultQpInitAttr() -> ibv_qp_init_attr {
@@ -46,7 +47,7 @@ private:
   }
 
 public:
-  Conn(rdma_cm_id *id);
+  Conn(rdma_cm_id *id, uint32_t n_buffer_page);
   ~Conn();
 
 #ifdef USE_NOTIFY
@@ -72,6 +73,7 @@ public:
 
 public:
   auto qpState() -> void;
+  auto bufferPage(uint32_t id) -> void *;
 
 private:
   static auto onRecv(int fd, short what, void *arg) -> void;
@@ -81,6 +83,13 @@ private:
   ibv_qp *qp_{nullptr};
   ibv_pd *pd_{nullptr};
   ibv_cq *cq_{nullptr};
+  union {
+    void *buffer_{nullptr};
+    BufferPage *buffer_pages_;
+  };
+  uint32_t n_buffer_page_{0};
+  ibv_mr *buffer_mr_{nullptr};
+  uint32_t remote_buffer_key_{0};
 
 #ifdef USE_NOTIFY
   ::event *comp_event_{nullptr};
@@ -95,27 +104,33 @@ private:
 #endif
 };
 
+class [[gnu::packed]] Meta {
+public:
+  void *addr_;
+  uint64_t length_;
+};
+
 class ConnCtx {
 public:
-  constexpr static uint32_t max_buffer_size = 16;
+  ConnCtx(Conn *conn, void *buffer = nullptr, uint64_t length = 0);
 
 public:
-  ConnCtx(Conn *conn);
-
-public:
-  virtual ~ConnCtx();
+  virtual ~ConnCtx() = default;
   virtual auto advance(int32_t finished_op) -> void = 0;
 
 public:
-  auto buffer() -> char *;
+  auto buffer() -> void *;
 
 protected:
   Conn *conn_{nullptr}; // created in which Conn
-  char *buffer_{nullptr};
-  uint64_t length_{0};
-  ibv_mr *buffer_mr_{nullptr};
-
-  TIMER
+  union {
+    struct {
+      void *buffer_{nullptr}; // do not own
+      uint64_t length_{0};
+    };
+    Meta local_;
+  };
+  TIMER;
 };
 
 } // namespace rdma
