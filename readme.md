@@ -53,7 +53,7 @@ meson compile -C build
 - [x] add send and recv verbs
 - [x] add read and write verbs
 - [x] add ring for multi-client-calls.
-- [ ] add thread pool
+- [x] add thread pool
 - [ ] add memory pool
 
 ## Reference
