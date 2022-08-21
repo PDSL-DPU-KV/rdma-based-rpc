@@ -2,7 +2,7 @@
 
 namespace rdma {
 
-Conn::Conn(rdma_cm_id *id, uint32_t n_buffer_page)
+Conn::Conn(::rdma_cm_id *id, uint32_t n_buffer_page)
     : id_(id), n_buffer_page_(n_buffer_page) {
   int ret = 0;
 
@@ -37,7 +37,7 @@ Conn::Conn(rdma_cm_id *id, uint32_t n_buffer_page)
 
   info("allocate protection domain, completion queue and memory region");
 
-  ibv_qp_init_attr init_attr = defaultQpInitAttr();
+  auto init_attr = defaultQpInitAttr();
   init_attr.recv_cq = cq_;
   init_attr.send_cq = cq_;
   ret = ::rdma_create_qp(id_, pd_, &init_attr);
@@ -78,7 +78,8 @@ Conn::Conn(rdma_cm_id *id, uint32_t n_buffer_page)
 }
 
 auto Conn::poll() -> void {
-  static ibv_wc wc[cq_capacity];
+  static ::ibv_wc wc[cq_capacity];
+
   auto ret = ::ibv_poll_cq(cq_, cq_capacity, wc);
   if (ret < 0) {
     info("poll cq error");
@@ -92,6 +93,8 @@ auto Conn::poll() -> void {
   for (int i = 0; i < ret; i++) {
     reinterpret_cast<ConnCtx *>(wc[i].wr_id)->advance(wc[i].opcode);
   }
+
+  ::memset(wc, 0, sizeof(ibv_wc) * ret);
 }
 
 #ifdef USE_NOTIFY
@@ -107,7 +110,7 @@ auto Conn::onWorkComp([[gnu::unused]] int fd, [[gnu::unused]] short what,
                       void *arg) -> void {
   Conn *conn = reinterpret_cast<Conn *>(arg);
 
-  ibv_cq *cq = nullptr;
+  ::ibv_cq *cq = nullptr;
   [[gnu::unused]] void *unused_ctx = nullptr;
   auto ret = ::ibv_get_cq_event(conn->cc_, &cq, &unused_ctx);
   ::ibv_ack_cq_events(cq, 1);
@@ -128,30 +131,30 @@ auto Conn::onWorkComp([[gnu::unused]] int fd, [[gnu::unused]] short what,
 
 auto Conn::postRecv(void *ctx, void *local_addr, uint32_t length, uint32_t lkey)
     -> void {
-  ibv_sge sge{
+  ::ibv_sge sge{
       .addr = (uint64_t)local_addr,
       .length = length,
       .lkey = lkey,
   };
-  ibv_recv_wr wr{
+  ::ibv_recv_wr wr{
       .wr_id = (uintptr_t)ctx,
       .next = nullptr,
       .sg_list = &sge,
       .num_sge = 1,
   };
-  ibv_recv_wr *bad = nullptr;
+  ::ibv_recv_wr *bad = nullptr;
   auto ret = ::ibv_post_recv(qp_, &wr, &bad);
   check(ret, "fail to post recv");
 }
 
 auto Conn::postSend(void *ctx, void *local_addr, uint32_t length, uint32_t lkey)
     -> void {
-  ibv_sge sge{
+  ::ibv_sge sge{
       .addr = (uint64_t)local_addr,
       .length = length,
       .lkey = lkey,
   };
-  ibv_send_wr wr{
+  ::ibv_send_wr wr{
       .wr_id = (uintptr_t)ctx,
       .next = nullptr,
       .sg_list = &sge,
@@ -159,19 +162,19 @@ auto Conn::postSend(void *ctx, void *local_addr, uint32_t length, uint32_t lkey)
       .opcode = IBV_WR_SEND,
       .send_flags = IBV_SEND_SIGNALED,
   };
-  ibv_send_wr *bad = nullptr;
+  ::ibv_send_wr *bad = nullptr;
   auto ret = ::ibv_post_send(qp_, &wr, &bad);
   check(ret, "fail to post send");
 }
 
 auto Conn::postRead(void *ctx, void *local_addr, uint32_t length, uint32_t lkey,
                     void *remote_addr, uint32_t rkey) -> void {
-  ibv_sge sge{
+  ::ibv_sge sge{
       .addr = (uint64_t)local_addr,
       .length = length,
       .lkey = lkey,
   };
-  ibv_send_wr wr{
+  ::ibv_send_wr wr{
       .wr_id = (uintptr_t)ctx,
       .next = nullptr,
       .sg_list = &sge,
@@ -185,7 +188,7 @@ auto Conn::postRead(void *ctx, void *local_addr, uint32_t length, uint32_t lkey,
           },
       },
   };
-  ibv_send_wr *bad = nullptr;
+  ::ibv_send_wr *bad = nullptr;
   auto ret = ::ibv_post_send(qp_, &wr, &bad);
   check(ret, "fail to post read");
 }
@@ -193,12 +196,12 @@ auto Conn::postRead(void *ctx, void *local_addr, uint32_t length, uint32_t lkey,
 auto Conn::postWriteImm(void *ctx, void *local_addr, uint32_t length,
                         uint32_t lkey, void *remote_addr, uint32_t rkey)
     -> void {
-  ibv_sge sge{
+  ::ibv_sge sge{
       .addr = (uint64_t)local_addr,
       .length = length,
       .lkey = lkey,
   };
-  ibv_send_wr wr{
+  ::ibv_send_wr wr{
       .wr_id = (uintptr_t)ctx,
       .next = nullptr,
       .sg_list = &sge,
@@ -213,18 +216,18 @@ auto Conn::postWriteImm(void *ctx, void *local_addr, uint32_t length,
           },
       },
   };
-  ibv_send_wr *bad = nullptr;
+  ::ibv_send_wr *bad = nullptr;
   auto ret = ::ibv_post_send(qp_, &wr, &bad);
   check(ret, "fail to post write");
 }
 
 auto Conn::qpState() -> void {
-  ibv_qp_attr attr;
-  ibv_qp_init_attr init_attr;
-  ibv_query_qp(qp_, &attr,
-               IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT |
-                   IBV_QP_RNR_RETRY,
-               &init_attr);
+  ::ibv_qp_attr attr;
+  ::ibv_qp_init_attr init_attr;
+  ::ibv_query_qp(qp_, &attr,
+                 IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT |
+                     IBV_QP_RNR_RETRY,
+                 &init_attr);
 }
 
 auto Conn::bufferPage(uint32_t id) -> void * {
@@ -277,7 +280,5 @@ ConnCtx::ConnCtx(Conn *conn, void *buffer, uint64_t length)
     : conn_(conn), buffer_(buffer), length_(length) {
   ::memset(buffer_, 0, length_);
 }
-
-auto ConnCtx::buffer() -> void * { return (buffer_); }
 
 } // namespace rdma

@@ -26,18 +26,18 @@ class Conn {
   friend class ServerSideCtx;
 
 public:
-  // constexpr static uint64_t default_buffer_size = 4 * 1024 * 1024; // 4MB
-  constexpr static uint32_t cq_capacity = 64;
+  constexpr static uint32_t cq_capacity = 32;
+  constexpr static uint32_t queue_depth = cq_capacity * 2;
   constexpr static uint32_t buffer_page_size = 1024; // 1KB
   using BufferPage = char[buffer_page_size];
 
 private:
-  constexpr static auto defaultQpInitAttr() -> ibv_qp_init_attr {
+  constexpr static auto defaultQpInitAttr() -> ::ibv_qp_init_attr {
     return {
         .cap =
             {
-                .max_send_wr = cq_capacity * 2,
-                .max_recv_wr = cq_capacity * 2,
+                .max_send_wr = queue_depth,
+                .max_recv_wr = queue_depth,
                 .max_send_sge = 1,
                 .max_recv_sge = 1,
             },
@@ -47,14 +47,14 @@ private:
   }
 
 public:
-  Conn(rdma_cm_id *id, uint32_t n_buffer_page);
+  Conn(::rdma_cm_id *id, uint32_t n_buffer_page);
   ~Conn();
 
 #ifdef USE_NOTIFY
 public:
   auto registerCompEvent(::event_base *base) -> int;
 
-private:
+protected:
   static auto onWorkComp(int fd, short what, void *arg) -> void;
 #endif
 
@@ -75,28 +75,28 @@ public:
   auto qpState() -> void;
   auto bufferPage(uint32_t id) -> void *;
 
-private:
+protected:
   static auto onRecv(int fd, short what, void *arg) -> void;
 
-private:
-  rdma_cm_id *id_{nullptr};
-  ibv_qp *qp_{nullptr};
-  ibv_pd *pd_{nullptr};
-  ibv_cq *cq_{nullptr};
+protected:
+  ::rdma_cm_id *id_{nullptr};
+  ::ibv_qp *qp_{nullptr};
+  ::ibv_pd *pd_{nullptr};
+  ::ibv_cq *cq_{nullptr};
   union {
     void *buffer_{nullptr};
     BufferPage *buffer_pages_;
   };
   uint32_t n_buffer_page_{0};
-  ibv_mr *buffer_mr_{nullptr};
+  ::ibv_mr *buffer_mr_{nullptr};
   uint32_t remote_buffer_key_{0};
 
 #ifdef USE_NOTIFY
   ::event *comp_event_{nullptr};
-  ibv_comp_channel *cc_{nullptr};
+  ::ibv_comp_channel *cc_{nullptr};
 #endif
 
-  rdma_conn_param param_{};
+  ::rdma_conn_param param_{};
 
 #ifdef USE_POLL
   std::atomic_bool running_{false};
@@ -104,10 +104,12 @@ private:
 #endif
 };
 
-class [[gnu::packed]] Meta {
+// exchange recv buffer meta
+class [[gnu::packed]] BufferMeta {
 public:
   void *addr_;
-  uint64_t length_;
+  uint32_t length_;
+  uint32_t rpc_id_;
 };
 
 class ConnCtx {
@@ -118,17 +120,15 @@ public:
   virtual ~ConnCtx() = default;
   virtual auto advance(int32_t finished_op) -> void = 0;
 
-public:
-  auto buffer() -> void *;
-
 protected:
   Conn *conn_{nullptr}; // created in which Conn
   union {
-    struct {
+    struct [[gnu::packed]] {
       void *buffer_{nullptr}; // do not own
-      uint64_t length_{0};
+      uint32_t length_{0};
+      uint32_t rpc_id_{0};
     };
-    Meta local_;
+    BufferMeta local_;
   };
   TIMER;
 };

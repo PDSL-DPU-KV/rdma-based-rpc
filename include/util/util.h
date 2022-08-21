@@ -30,7 +30,7 @@ static inline auto die(const char *fmt, Args... args) -> void {
 
 static inline auto check(int rc, const char *msg) -> void {
   if (rc != 0) {
-    die("%s: error code: %d", msg, rc);
+    die("%s: error code: %d, errno: %d", msg, rc, errno);
   }
 }
 
@@ -54,8 +54,8 @@ static inline auto warnp(void *p, const char *msg) -> void {
 
 #ifdef USE_TIMER
 #define TIMER                                                                  \
-  timespec start;                                                              \
-  timespec end;
+  ::timespec start;                                                            \
+  ::timespec end;
 
 #define START_TIMER                                                            \
   do {                                                                         \
@@ -73,6 +73,12 @@ static inline auto warnp(void *p, const char *msg) -> void {
 #define START_TIMER
 #define END_TIMER
 #endif
+
+inline static auto align(uint64_t x, uint64_t base) -> uint64_t {
+  return (((x) + (base)-1) & ~(base - 1));
+}
+
+#define HUGE_PAGE_SIZE 2 * 1024 * 1024
 
 auto alloc(uint32_t len) -> void *;
 auto dealloc(void *p, uint32_t len) -> void;

@@ -2,55 +2,21 @@
 #define __RDMA_EXAMPLE_SERVER__
 
 #include "common.h"
+#include "ring.h"
+#include <functional>
+#include <thread_pool.h>
+#include <unordered_map>
 
 namespace rdma {
 
-class ServerSideCtx final : public ConnCtx {
-public:
-  enum State : int32_t {
-    Vacant,
-    WaitingForBufferMeta,
-    ReadingRequest,
-    FilledWithRequest,
-    WritingResponse,
-    FilledWithResponse,
-  };
-
-public:
-  ServerSideCtx(Conn *conn, void *buffer, uint32_t length);
-  ~ServerSideCtx();
-
-public:
-  auto advance(int32_t finished_op) -> void override;
-  auto prepare() -> void;
-
-public:
-  // auto clone() -> ServerSideCtx *;
-
-private:
-  State state_{Vacant}; // trace the state of ConnCtx
-  ibv_mr *meta_mr_{nullptr};
-  Meta remote_meta_{};
-};
-
-class ConnWithCtx {
-  friend class Server;
-
-public:
-  constexpr static uint32_t max_context_num = Conn::cq_capacity - 1;
-
-public:
-  ConnWithCtx(rdma_cm_id *id);
-  ~ConnWithCtx();
-
-private:
-  Conn *conn_{nullptr};
-  std::array<ServerSideCtx *, max_context_num> ctx_{};
-};
-
+class ServerSideCtx;
+class ConnWithCtx;
 class Server {
 public:
   constexpr static uint32_t default_back_log = 8;
+
+public:
+  using Handle = std::function<void(ServerSideCtx *)>;
 
 public:
   Server(const char *host, const char *port);
@@ -66,14 +32,83 @@ private:
 public:
   auto handleConnEvent() -> void;
 
+public:
+  auto registerHandler(uint32_t id, Handle fn) -> void;
+  auto getHandler(uint32_t id) -> Handle;
+
 private:
-  addrinfo *addr_{nullptr};
-  rdma_cm_id *cm_id_{nullptr};
-  rdma_event_channel *ec_{nullptr};
+  ::addrinfo *addr_{nullptr};
+  ::rdma_cm_id *cm_id_{nullptr};
+  ::rdma_event_channel *ec_{nullptr};
 
   ::event_base *base_{nullptr};
   ::event *conn_event_{nullptr};
   ::event *exit_event_{nullptr};
+
+  std::unordered_map<uint32_t, Handle> handlers_{};
+};
+
+class ServerSideCtx final : public ConnCtx {
+  friend class ConnWithCtx;
+
+private:
+  enum State : int32_t {
+    Vacant,
+    WaitingForBufferMeta,
+    ReadingRequest,
+    FilledWithRequest,
+    WritingResponse,
+    FilledWithResponse,
+  };
+
+public:
+  ServerSideCtx(Conn *conn, void *buffer, uint32_t length);
+  ~ServerSideCtx();
+
+protected:
+  auto advance(int32_t finished_op) -> void override;
+  auto prepare() -> void; // receiver
+  auto handleWrapper() -> void;
+
+public:
+  template <typename T> auto getRequest() -> const T * {
+    assert(state_ == FilledWithRequest);
+    return reinterpret_cast<const T *>(buffer_);
+  }
+  template <typename T> auto setResponse(const T *resp) -> void {
+    assert(sizeof(T) < Conn::buffer_page_size);
+    ::memcpy(buffer_, resp, sizeof(T));
+    state_ = FilledWithResponse;
+  }
+
+protected:
+  auto swap(ServerSideCtx *r) -> void;
+
+private:
+  State state_{Vacant}; // trace the state of ConnCtx
+  ::ibv_mr *meta_mr_{nullptr};
+  BufferMeta *remote_meta_{nullptr};
+};
+
+class ConnWithCtx final : public Conn {
+  friend class Server;
+  friend class ServerSideCtx;
+
+public:
+  constexpr static uint32_t max_context_num = queue_depth >> 1;
+  constexpr static uint32_t max_receiver_num = max_context_num >> 1;
+  constexpr static uint32_t max_sender_num = max_context_num - max_receiver_num;
+  constexpr static uint32_t default_thread_pool_size = 1;
+
+public:
+  ConnWithCtx(Server *s, ::rdma_cm_id *id);
+  ~ConnWithCtx();
+
+private:
+  Server *s_{nullptr};
+  std::array<ServerSideCtx *, max_receiver_num> receivers_{};
+  Ring<ServerSideCtx *, max_sender_num> senders_{};
+  ThreadPool pool_{default_thread_pool_size};
 };
 
 } // namespace rdma

@@ -1,4 +1,4 @@
-client = executable(
+executable(
     'client',
     'client.cc',
     include_directories: project_include_directories,
@@ -6,7 +6,7 @@ client = executable(
     link_with: rdma_common_lib,
 )
 
-server = executable(
+executable(
     'server',
     'server.cc',
     include_directories: project_include_directories,

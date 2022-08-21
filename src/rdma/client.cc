@@ -4,8 +4,8 @@ namespace rdma {
 
 Client::Client(const char *host, const char *port) {
   int ret = 0;
-  rdma_cm_event *e;
-  rdma_cm_id *id;
+  ::rdma_cm_event *e;
+  ::rdma_cm_id *id;
 
   ret = ::getaddrinfo(host, port, nullptr, &addr_);
   check(ret, "fail to parse host and port");
@@ -69,8 +69,8 @@ Client::Client(const char *host, const char *port) {
 #endif
 }
 
-auto Client::waitEvent(rdma_cm_event_type expected) -> rdma_cm_event * {
-  rdma_cm_event *cm_event = nullptr;
+auto Client::waitEvent(::rdma_cm_event_type expected) -> rdma_cm_event * {
+  ::rdma_cm_event *cm_event = nullptr;
   auto ret = ::rdma_get_cm_event(ec_, &cm_event); // block for an event
   if (ret != 0) {
     info("fail to get cm event");
@@ -90,23 +90,12 @@ auto Client::waitEvent(rdma_cm_event_type expected) -> rdma_cm_event * {
   return nullptr;
 }
 
-auto Client::call(int id, int n) -> void {
-  auto ctx = ctx_ring_.pop();
-  char src[16];
-  ::snprintf(src, 16, "%d-%d", id, n);
-  ::memcpy(ctx->buffer(), src, sizeof(src));
-  ctx->state_ = ClientSideCtx::FilledWithRequest;
-  ctx->trigger();
-  ctx->wait();
-  ctx_ring_.push(ctx);
-}
-
 Client::~Client() {
   if (conn_ == nullptr) {
     return;
   }
   int ret = 0;
-  rdma_cm_event *e = nullptr;
+  ::rdma_cm_event *e = nullptr;
 
 #ifdef USE_NOTIFY
   ret = ::event_base_loopbreak(base_);
@@ -140,19 +129,9 @@ Client::~Client() {
 
 ClientSideCtx::ClientSideCtx(Conn *conn, void *buffer, uint32_t size)
     : ConnCtx(conn, buffer, size) {
-  meta_mr_ =
-      ::ibv_reg_mr(conn->pd_, &local_, sizeof(Meta), IBV_ACCESS_LOCAL_WRITE);
+  meta_mr_ = ::ibv_reg_mr(conn->pd_, &local_, sizeof(BufferMeta),
+                          IBV_ACCESS_LOCAL_WRITE);
   checkp(meta_mr_, "fail to register local meta sender");
-}
-
-auto ClientSideCtx::trigger() -> void {
-  assert(state_ == FilledWithRequest);
-  info("local memory region: address: %p, length: %d", buffer_, length_);
-  state_ = SendingBufferMeta;
-
-  conn_->postSend(this, meta_mr_->addr, meta_mr_->length, meta_mr_->lkey);
-  // NOTICE: must pre-post at here
-  conn_->postRecv(this, buffer_, length_, conn_->buffer_mr_->lkey);
 }
 
 auto ClientSideCtx::advance(int32_t finished_op) -> void {
@@ -165,13 +144,9 @@ auto ClientSideCtx::advance(int32_t finished_op) -> void {
   }
   case IBV_WC_RECV_RDMA_WITH_IMM: {
     assert(state_ == WaitingForResponse);
-    info("receive from remote, response content: %s", buffer_);
-    state_ = FilledWithResponse;
-    {
-      // TODO: make this a self-defined callback
-      state_ = Vacant;
-      cv_.notify_all();
-    }
+    ::memcpy(response_, buffer_, response_length_);
+    state_ = Vacant;
+    cv_.notify_all();
     break;
   }
   default: {
