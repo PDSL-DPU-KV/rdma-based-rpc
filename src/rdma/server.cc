@@ -189,6 +189,7 @@ auto ServerSideCtx::advance(int32_t finished_op) -> void {
   case IBV_WC_RDMA_WRITE: {
     assert(state_ == WritingResponse);
     info("write done, wait for next request");
+    state_ = Vacant;
     static_cast<ConnWithCtx *>(conn_)->senders_.push(this);
     break;
   }

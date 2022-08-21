@@ -1,6 +1,6 @@
 # RDMA-Example
 
-A simple example for the RDMA beginner.
+A simple but complete example for the RDMA beginner.
 
 ## Prerequisite
 
@@ -26,7 +26,7 @@ A simple example for the RDMA beginner.
 
 We have two modes, 'poll' and 'notify'.
 
-- The former will use one thread for one connection to polling its CQ.
+- The former will use one background thread for one connection to polling its CQ.
 
 - The later will use libevent to handle all connections' completion events.
 
@@ -45,6 +45,59 @@ meson compile -C build
 
 # start the client
 ./build/app/client <server ip> <server port>
+```
+
+## Design
+
+### Connection Management
+
+Register the rdma_cm_event_channel's fd into event loop.
+
+### RPC Context FSM
+
+One RPC Procedure
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Server
+    Server->>Server: Pre-post Recv for Meta
+    Client->>Server: Post Send, Send Meta
+    Client->>Client: Pre-post Recv for Response
+    Server->>Client: Post Read, Read Request
+    Server->>Server: Call Handler
+    Server->>Client: Post Write, Write Response
+```
+
+Three kinds of context.
+
+Client Side Context
+
+```mermaid
+stateDiagram
+    Vacant --> SendingBufferMeta: Fill with request and send meta.
+    SendingBufferMeta --> WaitingForResponse: Completion event of sending meta.
+    WaitingForResponse --> Vacant: Completion event of remote writing response.
+```
+
+Server Side Receiver Context
+
+```mermaid
+stateDiagram
+    Vacant --> WaitingForBufferMeta: Initialize and wait for meta.
+    WaitingForBufferMeta --> ReadingRequest: Receive meta and read request.
+    ReadingRequest --> FilledWithRequest: Completion event of reading request.
+    FilledWithRequest --> WaitingForBufferMeta: Switch buffer with sender.
+```
+
+Server Side Sender Context
+
+```mermaid
+stateDiagram
+    Vacant --> FilledWithRequest: Switch buffer with receiver.
+    FilledWithRequest --> FilledWithResponse: Finish handling request.
+    FilledWithResponse --> WritingResponse: Fill with resposne and write response.
+    WritingResponse --> Vacant: Completion event of writing response.
 ```
 
 ## To-do

@@ -57,8 +57,8 @@ private:
     WaitingForBufferMeta,
     ReadingRequest,
     FilledWithRequest,
-    WritingResponse,
     FilledWithResponse,
+    WritingResponse,
   };
 
 public:
