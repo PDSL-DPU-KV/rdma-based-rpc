@@ -37,13 +37,13 @@ public:
   auto getHandler(uint32_t id) -> Handle;
 
 private:
-  ::addrinfo *addr_{nullptr};
-  ::rdma_cm_id *cm_id_{nullptr};
-  ::rdma_event_channel *ec_{nullptr};
+  addrinfo *addr_{nullptr};
+  rdma_cm_id *cm_id_{nullptr};
+  rdma_event_channel *ec_{nullptr};
 
-  ::event_base *base_{nullptr};
-  ::event *conn_event_{nullptr};
-  ::event *exit_event_{nullptr};
+  event_base *base_{nullptr};
+  event *conn_event_{nullptr};
+  event *exit_event_{nullptr};
 
   std::unordered_map<uint32_t, Handle> handlers_{};
 };
@@ -77,7 +77,7 @@ public:
   }
   template <typename T> auto setResponse(const T *resp) -> void {
     assert(sizeof(T) < Conn::buffer_page_size);
-    ::memcpy(buffer_, resp, sizeof(T));
+    memcpy(buffer_, resp, sizeof(T));
     state_ = FilledWithResponse;
   }
 
@@ -86,7 +86,7 @@ protected:
 
 private:
   State state_{Vacant}; // trace the state of ConnCtx
-  ::ibv_mr *meta_mr_{nullptr};
+  ibv_mr *meta_mr_{nullptr};
   BufferMeta *remote_meta_{nullptr};
 };
 
@@ -101,7 +101,7 @@ public:
   constexpr static uint32_t default_thread_pool_size = 1;
 
 public:
-  ConnWithCtx(Server *s, ::rdma_cm_id *id);
+  ConnWithCtx(Server *s, rdma_cm_id *id);
   ~ConnWithCtx();
 
 private:

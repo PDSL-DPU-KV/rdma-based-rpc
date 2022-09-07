@@ -32,7 +32,7 @@ public:
   using BufferPage = char[buffer_page_size];
 
 private:
-  constexpr static auto defaultQpInitAttr() -> ::ibv_qp_init_attr {
+  constexpr static auto defaultQpInitAttr() -> ibv_qp_init_attr {
     return {
         .cap =
             {
@@ -47,12 +47,12 @@ private:
   }
 
 public:
-  Conn(::rdma_cm_id *id, uint32_t n_buffer_page);
+  Conn(rdma_cm_id *id, uint32_t n_buffer_page);
   ~Conn();
 
 #ifdef USE_NOTIFY
 public:
-  auto registerCompEvent(::event_base *base) -> int;
+  auto registerCompEvent(event_base *base) -> int;
 
 protected:
   static auto onWorkComp(int fd, short what, void *arg) -> void;
@@ -79,24 +79,24 @@ protected:
   static auto onRecv(int fd, short what, void *arg) -> void;
 
 protected:
-  ::rdma_cm_id *id_{nullptr};
-  ::ibv_qp *qp_{nullptr};
-  ::ibv_pd *pd_{nullptr};
-  ::ibv_cq *cq_{nullptr};
+  rdma_cm_id *id_{nullptr};
+  ibv_qp *qp_{nullptr};
+  ibv_pd *pd_{nullptr};
+  ibv_cq *cq_{nullptr};
   union {
     void *buffer_{nullptr};
     BufferPage *buffer_pages_;
   };
   uint32_t n_buffer_page_{0};
-  ::ibv_mr *buffer_mr_{nullptr};
+  ibv_mr *buffer_mr_{nullptr};
   uint32_t remote_buffer_key_{0};
 
 #ifdef USE_NOTIFY
-  ::event *comp_event_{nullptr};
-  ::ibv_comp_channel *cc_{nullptr};
+  event *comp_event_{nullptr};
+  ibv_comp_channel *cc_{nullptr};
 #endif
 
-  ::rdma_conn_param param_{};
+  rdma_conn_param param_{};
 
 #ifdef USE_POLL
   std::atomic_bool running_{false};

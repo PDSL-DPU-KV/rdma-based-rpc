@@ -5,56 +5,56 @@ namespace rdma {
 
 Server::Server(const char *host, const char *port) {
   int ret = 0;
-  ret = ::getaddrinfo(host, port, nullptr, &addr_);
+  ret = getaddrinfo(host, port, nullptr, &addr_);
   check(ret, "fail to parse host and port");
 
   info("listening address: %s:%s", host, port);
 
-  ec_ = ::rdma_create_event_channel();
+  ec_ = rdma_create_event_channel();
   checkp(ec_, "fail to create event channel");
-  ret = ::rdma_create_id(ec_, &cm_id_, nullptr, RDMA_PS_TCP);
+  ret = rdma_create_id(ec_, &cm_id_, nullptr, RDMA_PS_TCP);
   check(ret, "fail to create cm id");
 
   info("initialize event channel and identifier");
 
-  ret = ::rdma_bind_addr(cm_id_, addr_->ai_addr);
+  ret = rdma_bind_addr(cm_id_, addr_->ai_addr);
   check(ret, "fail to bind address");
-  ret = ::rdma_listen(cm_id_, default_back_log);
+  ret = rdma_listen(cm_id_, default_back_log);
   check(ret, "fail to listen for connections");
 
   info("bind address and begin listening for connection requests");
 
-  ret = ::evthread_use_pthreads();
+  ret = evthread_use_pthreads();
   check(ret, "fail to open multi-thread support for libevent");
-  base_ = ::event_base_new();
+  base_ = event_base_new();
   checkp(base_, "fail to create event loop base");
-  conn_event_ = ::event_new(base_, ec_->fd, EV_READ | EV_PERSIST,
-                            &Server::onConnEvent, this);
+  conn_event_ = event_new(base_, ec_->fd, EV_READ | EV_PERSIST,
+                          &Server::onConnEvent, this);
   checkp(conn_event_, "fail to create connection event");
-  ret = ::event_add(conn_event_, nullptr);
+  ret = event_add(conn_event_, nullptr);
   check(ret, "fail to register connection event");
-  exit_event_ = ::event_new(base_, SIGINT, EV_SIGNAL, &Server::onExit, this);
+  exit_event_ = event_new(base_, SIGINT, EV_SIGNAL, &Server::onExit, this);
   checkp(exit_event_, "fail to create exit event");
-  ret = ::event_add(exit_event_, nullptr);
+  ret = event_add(exit_event_, nullptr);
   check(ret, "fail to register exit event");
   info("register all events into event loop");
 }
 
 auto Server::run() -> int {
   info("event loop running");
-  return ::event_base_dispatch(base_);
+  return event_base_dispatch(base_);
 }
 
 auto Server::handleConnEvent() -> void {
-  ::rdma_cm_event *e;
-  if (::rdma_get_cm_event(ec_, &e) != 0) {
+  rdma_cm_event *e;
+  if (rdma_get_cm_event(ec_, &e) != 0) {
     info("fail to get cm event");
     return;
   }
 
   if (e->status != 0) {
     info("got a bad event");
-    auto ret = ::rdma_ack_cm_event(e);
+    auto ret = rdma_ack_cm_event(e);
     warn(ret, "fail to ack event");
     return;
   }
@@ -67,12 +67,12 @@ auto Server::handleConnEvent() -> void {
 
     auto ctx = new ConnWithCtx(this, client_id);
 
-    auto ret = ::rdma_accept(client_id, &ctx->param_);
+    auto ret = rdma_accept(client_id, &ctx->param_);
     check(ret, "fail to accept connection");
 
     ctx->remote_buffer_key_ = *(uint32_t *)e->param.conn.private_data;
 
-    ret = ::rdma_ack_cm_event(e);
+    ret = rdma_ack_cm_event(e);
     warn(ret, "fail to ack event");
 
     client_id->context = ctx;
@@ -87,20 +87,20 @@ auto Server::handleConnEvent() -> void {
     break;
   }
   case RDMA_CM_EVENT_ESTABLISHED: {
-    auto ret = ::rdma_ack_cm_event(e);
+    auto ret = rdma_ack_cm_event(e);
     warn(ret, "fail to ack event");
     info("establish a connection");
     break;
   }
   case RDMA_CM_EVENT_DISCONNECTED: {
-    auto ret = ::rdma_ack_cm_event(e);
+    auto ret = rdma_ack_cm_event(e);
     warn(ret, "fail to ack event");
     delete reinterpret_cast<ConnWithCtx *>(client_id->context);
     info("close a connection");
     break;
   }
   default: {
-    info("unexpected event: %s", ::rdma_event_str(e->event));
+    info("unexpected event: %s", rdma_event_str(e->event));
     break;
   }
   }
@@ -120,34 +120,34 @@ auto Server::onConnEvent([[gnu::unused]] int fd, [[gnu::unused]] short what,
 
 auto Server::onExit(int fd, short what, void *arg) -> void {
   Server *s = reinterpret_cast<Server *>(arg);
-  auto ret = ::event_base_loopbreak(s->base_);
+  auto ret = event_base_loopbreak(s->base_);
   check(ret, "fail to stop event loop");
   info("stop event loop");
 }
 
 Server::~Server() {
-  ::event_base_free(base_);
-  ::event_free(conn_event_);
-  ::event_free(exit_event_);
+  event_base_free(base_);
+  event_free(conn_event_);
+  event_free(exit_event_);
 
-  auto ret = ::rdma_destroy_id(cm_id_);
+  auto ret = rdma_destroy_id(cm_id_);
   warn(ret, "fail to destroy cm id");
-  ::rdma_destroy_event_channel(ec_);
+  rdma_destroy_event_channel(ec_);
 
-  ::freeaddrinfo(addr_);
+  freeaddrinfo(addr_);
 
   info("cleanup the local resources");
 }
 
 ServerSideCtx::ServerSideCtx(Conn *conn, void *buffer, uint32_t length)
     : ConnCtx(conn, buffer, length), remote_meta_(new BufferMeta) {
-  meta_mr_ = ::ibv_reg_mr(conn->pd_, remote_meta_, sizeof(BufferMeta),
-                          IBV_ACCESS_LOCAL_WRITE);
+  meta_mr_ = ibv_reg_mr(conn->pd_, remote_meta_, sizeof(BufferMeta),
+                        IBV_ACCESS_LOCAL_WRITE);
   checkp(meta_mr_, "fail to register remote meta receiver");
 }
 
 ServerSideCtx::~ServerSideCtx() {
-  check(::ibv_dereg_mr(meta_mr_), "fail to deregister remote meta receiver");
+  check(ibv_dereg_mr(meta_mr_), "fail to deregister remote meta receiver");
   delete remote_meta_;
 }
 
@@ -207,7 +207,7 @@ auto ServerSideCtx::handleWrapper() -> void {
                       remote_meta_->addr_, conn_->remote_buffer_key_);
 }
 
-ConnWithCtx::ConnWithCtx(Server *s, ::rdma_cm_id *id)
+ConnWithCtx::ConnWithCtx(Server *s, rdma_cm_id *id)
     : Conn(id, max_context_num), s_(s), pool_(default_thread_pool_size) {
   for (uint32_t i = 0; i < max_receiver_num; i++) {
     receivers_[i] = new ServerSideCtx(this, bufferPage(i), buffer_page_size);

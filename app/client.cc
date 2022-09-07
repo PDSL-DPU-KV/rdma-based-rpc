@@ -10,14 +10,14 @@ auto main(int argc, char *argv[]) -> int {
       request.who = id;
       request.which = i;
 
-      ::snprintf(request.payload, sizeof(request.payload), "hello");
-      
-      ::printf("send request from %d, number is %d, payload is \"%s\"\n",
-               request.who, request.which, request.payload);
+      snprintf(request.payload, sizeof(request.payload), "hello");
+
+      printf("send request from %d, number is %d, payload is \"%s\"\n",
+             request.who, request.which, request.payload);
 
       c.call(0, &request, &response);
 
-      ::printf("receive response: \"%s\"\n", response.payload);
+      printf("receive response: \"%s\"\n", response.payload);
     }
     printf("done\n");
   };

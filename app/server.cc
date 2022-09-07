@@ -6,11 +6,11 @@ auto main(int argc, char *argv[]) -> int {
 
   s.registerHandler(0, [](rdma::ServerSideCtx *ctx) -> void {
     auto request = ctx->getRequest<HelloRequest>();
-    ::printf("receiver request from %d, number is %d, payload is \"%s\"\n",
-             request->who, request->which, request->payload);
+    printf("receiver request from %d, number is %d, payload is \"%s\"\n",
+           request->who, request->which, request->payload);
     HelloResponse resp;
-    ::snprintf(resp.payload, sizeof(resp.payload), "%d-%d-%s-world-done",
-               request->who, request->which, request->payload);
+    snprintf(resp.payload, sizeof(resp.payload), "%d-%d-%s-world-done",
+             request->who, request->which, request->payload);
     ctx->setResponse(&resp);
   });
 

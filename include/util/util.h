@@ -6,13 +6,13 @@
 namespace rdma {
 
 static inline auto info(const char *msg) -> void {
-  ::fprintf(stderr, "%s\n", msg);
+  fprintf(stderr, "%s\n", msg);
 }
 
 template <typename... Args>
 static inline auto info(const char *fmt, Args... args) -> void {
-  ::fprintf(stderr, fmt, args...);
-  ::fprintf(stderr, "\n");
+  fprintf(stderr, fmt, args...);
+  fprintf(stderr, "\n");
 }
 
 static inline auto die(const char *msg) -> void {
@@ -24,7 +24,7 @@ constexpr static size_t err_msg_buf_size = 1024;
 template <typename... Args>
 static inline auto die(const char *fmt, Args... args) -> void {
   char temp_buffer[err_msg_buf_size];
-  ::snprintf(temp_buffer, err_msg_buf_size, fmt, args...);
+  snprintf(temp_buffer, err_msg_buf_size, fmt, args...);
   throw std::runtime_error(temp_buffer);
 }
 
@@ -54,17 +54,17 @@ static inline auto warnp(void *p, const char *msg) -> void {
 
 #ifdef USE_TIMER
 #define TIMER                                                                  \
-  ::timespec start;                                                            \
-  ::timespec end;
+  timespec start;                                                              \
+  timespec end;
 
 #define START_TIMER                                                            \
   do {                                                                         \
-    ::clock_gettime(CLOCK_MONOTONIC, &start);                                  \
+    clock_gettime(CLOCK_MONOTONIC, &start);                                    \
   } while (0)
 
 #define END_TIMER                                                              \
   do {                                                                         \
-    ::clock_gettime(CLOCK_MONOTONIC, &end);                                    \
+    clock_gettime(CLOCK_MONOTONIC, &end);                                      \
     printf("time usage: %lu\n", (end.tv_sec - start.tv_sec) * 1000000000 +     \
                                     (end.tv_nsec - start.tv_nsec));            \
   } while (0)

@@ -34,7 +34,7 @@ public:
     response_ = response;
     response_length_ = sizeof(ResponseType);
 
-    ::memcpy(buffer_, request_, request_length_);
+    memcpy(buffer_, request_, request_length_);
 
     info("local memory region: address: %p, length: %d", buffer_, length_);
     state_ = SendingBufferMeta;
@@ -49,7 +49,7 @@ public:
 private:
   State state_{Vacant};
   // register the local_ in ConnCtx, send to the server side
-  ::ibv_mr *meta_mr_{nullptr};
+  ibv_mr *meta_mr_{nullptr};
   // user buffers
   const void *request_{nullptr};
   uint32_t request_length_{0};
@@ -80,16 +80,16 @@ public:
   }
 
 private:
-  auto waitEvent(::rdma_cm_event_type expected) -> rdma_cm_event *;
+  auto waitEvent(rdma_cm_event_type expected) -> rdma_cm_event *;
 
 private:
-  ::addrinfo *addr_{nullptr};
-  ::rdma_event_channel *ec_{nullptr};
+  addrinfo *addr_{nullptr};
+  rdma_event_channel *ec_{nullptr};
   Conn *conn_{nullptr};
   Ring<ClientSideCtx *, max_context_num> ctx_ring_{};
 
 #ifdef USE_NOTIFY
-  ::event_base *base_{nullptr};
+  event_base *base_{nullptr};
   std::thread *bg_poller_{nullptr};
 #endif
 };
