@@ -105,8 +105,9 @@ Client::~Client() {
   event_base_free(base_);
 #endif
 
+  ClientSideCtx *ctx;
   for (uint32_t i = 0; i < max_context_num; i++) {
-    auto ctx = ctx_ring_.pop();
+    assert(ctx_ring_.pop(ctx));
     delete ctx;
   }
 

@@ -18,21 +18,18 @@ else
     error('mode is not specified')
 endif
 
-libevent_dep = dependency('libevent')
-libibverbs_dep = dependency('libibverbs')
-librdmacm_dep = dependency('librdmacm')
-pthread_dep = dependency('threads')
-project_dependencies = [
-    libibverbs_dep,
-    librdmacm_dep,
-    libevent_dep,
-    pthread_dep,
+deps = [
+    dependency('libevent'),
+    dependency('libevent_pthreads'),
+    dependency('libibverbs'),
+    dependency('librdmacm'),
+    dependency('threads'),
 ]
-project_link_flags = ['-levent_pthreads']
 
 project_header_files = []
 project_source_files = []
-project_include_directories = [
+
+incs = [
     include_directories('include/rdma'),
     include_directories('include/util'),
 ]

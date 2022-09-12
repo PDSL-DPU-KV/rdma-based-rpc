@@ -180,7 +180,10 @@ auto ServerSideCtx::advance(int32_t finished_op) -> void {
     assert(state_ == ReadingRequest);
     state_ = FilledWithRequest;
     auto conn = static_cast<ConnWithCtx *>(conn_);
-    auto sender = conn->senders_.pop();
+    ServerSideCtx *sender = nullptr;
+    while (not conn->senders_.pop(sender)) {
+      pause();
+    }
     sender->swap(this);
     conn->pool_.enqueue(&ServerSideCtx::handleWrapper, sender);
     prepare();
@@ -190,7 +193,8 @@ auto ServerSideCtx::advance(int32_t finished_op) -> void {
     assert(state_ == WritingResponse);
     info("write done, wait for next request");
     state_ = Vacant;
-    static_cast<ConnWithCtx *>(conn_)->senders_.push(this);
+    auto conn = static_cast<ConnWithCtx *>(conn_);
+    assert(conn->senders_.push(this));
     break;
   }
   default: {
@@ -222,8 +226,10 @@ ConnWithCtx::~ConnWithCtx() {
   for (auto p : receivers_) {
     delete p;
   }
+  ServerSideCtx *ctx = nullptr;
   for (uint32_t i = 0; i < max_sender_num; i++) {
-    delete senders_.pop();
+    assert(senders_.pop(ctx));
+    delete ctx;
   }
   pool_.stop();
 }

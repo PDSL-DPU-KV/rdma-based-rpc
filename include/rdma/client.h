@@ -73,10 +73,13 @@ public:
   template <typename RequestType, typename ResponseType>
   auto call(uint32_t rpc_id, const RequestType *request, ResponseType *response)
       -> void {
-    auto ctx = ctx_ring_.pop();
+    ClientSideCtx *ctx = nullptr;
+    while (not ctx_ring_.pop(ctx)) {
+      pause();
+    }
     ctx->call(rpc_id, request, response);
     ctx->wait();
-    ctx_ring_.push(ctx);
+    assert(ctx_ring_.push(ctx));
   }
 
 private:
