@@ -1,0 +1,8 @@
+syntax = "proto3";
+package echo;
+
+option optimize_for = LITE_RUNTIME;
+
+message Hello {
+  string greeting = 1;
+}

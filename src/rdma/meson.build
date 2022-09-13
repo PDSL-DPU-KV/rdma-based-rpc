@@ -1,5 +1,6 @@
 rdma_common_source += files(
-    'common.cc',
+    'connection.cc',
+    'context.cc',
     'server.cc',
     'client.cc'
 )

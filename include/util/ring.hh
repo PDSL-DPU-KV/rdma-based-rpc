@@ -47,7 +47,6 @@ public:
 public:
   template <typename... Args> auto push(Args &&...args) -> bool {
     uint32_t producer_new_head;
-    uint32_t consumer_tail;
     uint32_t n_free;
 
     const uint32_t capacity = capacity_;

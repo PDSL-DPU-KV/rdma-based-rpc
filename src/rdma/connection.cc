@@ -1,4 +1,5 @@
-#include "common.hh"
+#include "connection.hh"
+#include "context.hh"
 
 namespace rdma {
 
@@ -91,7 +92,7 @@ auto Conn::poll() -> void {
 
   // we use wc.wr_id to match the Connection Context
   for (int i = 0; i < ret; i++) {
-    reinterpret_cast<ConnCtx *>(wc[i].wr_id)->advance(wc[i].opcode);
+    reinterpret_cast<ConnCtx *>(wc[i].wr_id)->advance(wc[i]);
   }
 
   memset(wc, 0, sizeof(ibv_wc) * ret);
@@ -274,11 +275,6 @@ Conn::~Conn() {
   dealloc(buffer_, n_buffer_page_ * buffer_page_size);
 
   info("cleanup connection resources");
-}
-
-ConnCtx::ConnCtx(Conn *conn, void *buffer, uint64_t length)
-    : conn_(conn), buffer_(buffer), length_(length) {
-  memset(buffer_, 0, length_);
 }
 
 } // namespace rdma

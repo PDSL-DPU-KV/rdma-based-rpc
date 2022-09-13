@@ -1,7 +1,10 @@
+subdir('proto')
+
 executable(
     'client',
     'client.cc',
-    include_directories: incs,
+    './pb/hello.pb.cc',
+    include_directories: [incs, './pb'],
     dependencies: deps,
     link_with: rdma_common_lib,
 )
@@ -9,7 +12,8 @@ executable(
 executable(
     'server',
     'server.cc',
-    include_directories: incs,
+    './pb/hello.pb.cc',
+    include_directories: [incs, './pb'],
     dependencies: deps,
     link_with: rdma_common_lib,
 )

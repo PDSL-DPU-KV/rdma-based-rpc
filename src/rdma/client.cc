@@ -51,7 +51,7 @@ Client::Client(const char *host, const char *port) {
 
   for (uint32_t i = 0; i < max_context_num; i++) {
     ctx_ring_.push(
-        new ClientSideCtx(conn_, conn_->bufferPage(i), Conn::buffer_page_size));
+        new Context(conn_, conn_->bufferPage(i), Conn::buffer_page_size));
   }
 
 #ifdef USE_NOTIFY
@@ -67,6 +67,17 @@ Client::Client(const char *host, const char *port) {
     info("background poller stop working");
   });
 #endif
+}
+
+auto Client::call(uint32_t rpc_id, const message_t &request,
+                  message_t &response) -> void {
+  Context *ctx = nullptr;
+  while (not ctx_ring_.pop(ctx)) {
+    pause();
+  }
+  ctx->call(rpc_id, request);
+  ctx->wait(response);
+  assert(ctx_ring_.push(ctx));
 }
 
 auto Client::waitEvent(rdma_cm_event_type expected) -> rdma_cm_event * {
@@ -105,7 +116,7 @@ Client::~Client() {
   event_base_free(base_);
 #endif
 
-  ClientSideCtx *ctx;
+  Context *ctx;
   for (uint32_t i = 0; i < max_context_num; i++) {
     assert(ctx_ring_.pop(ctx));
     delete ctx;
@@ -128,15 +139,24 @@ Client::~Client() {
   info("cleanup the local resources");
 }
 
-ClientSideCtx::ClientSideCtx(Conn *conn, void *buffer, uint32_t size)
+auto Client::Context::call(uint32_t rpc_id, const message_t &request) -> void {
+  assert(state_ == Vacant);
+  setRequest(request);
+  state_ = SendingBufferMeta;
+  conn_->postSend(this, meta_mr_->addr, meta_mr_->length, meta_mr_->lkey);
+  // NOTICE: must pre-post at here
+  conn_->postRecv(this, rawBuf(), readableLength(), conn_->buffer_mr_->lkey);
+}
+
+Client::Context::Context(Conn *conn, void *buffer, uint32_t size)
     : ConnCtx(conn, buffer, size) {
-  meta_mr_ = ibv_reg_mr(conn->pd_, &local_, sizeof(BufferMeta),
-                        IBV_ACCESS_LOCAL_WRITE);
+  meta_mr_ =
+      ibv_reg_mr(conn->pd_, &meta_, sizeof(BufferMeta), IBV_ACCESS_LOCAL_WRITE);
   checkp(meta_mr_, "fail to register local meta sender");
 }
 
-auto ClientSideCtx::advance(int32_t finished_op) -> void {
-  switch (finished_op) {
+auto Client::Context::advance(const ibv_wc &wc) -> void {
+  switch (wc.opcode) {
   case IBV_WC_SEND: {
     assert(state_ == SendingBufferMeta);
     info("send request buffer meta to the remote");
@@ -145,24 +165,24 @@ auto ClientSideCtx::advance(int32_t finished_op) -> void {
   }
   case IBV_WC_RECV_RDMA_WITH_IMM: {
     assert(state_ == WaitingForResponse);
-    memcpy(response_, buffer_, response_length_);
     state_ = Vacant;
     cv_.notify_all();
     break;
   }
   default: {
-    info("unexpected wc opcode: %d", finished_op);
+    info("unexpected wc opcode: %d", wc.opcode);
     break;
   }
   }
 }
 
-auto ClientSideCtx::wait() -> void {
+auto Client::Context::wait(message_t &response) -> void {
   std::unique_lock<std::mutex> l(mu_);
   cv_.wait(l, [this]() -> bool { return state_ == Vacant; });
+  getResponse(response);
 }
 
-ClientSideCtx::~ClientSideCtx() {
+Client::Context::~Context() {
   check(ibv_dereg_mr(meta_mr_), "fail to deregister remote meta receiver");
 }
 

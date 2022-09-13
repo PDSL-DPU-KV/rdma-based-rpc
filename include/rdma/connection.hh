@@ -16,8 +16,6 @@
 
 namespace rdma {
 
-class ConnCtx;
-
 class Conn {
   friend class Client;
   friend class Server;
@@ -102,35 +100,6 @@ protected:
   std::atomic_bool running_{false};
   std::thread *bg_poller_{nullptr};
 #endif
-};
-
-// exchange recv buffer meta
-class [[gnu::packed]] BufferMeta {
-public:
-  void *addr_;
-  uint32_t length_;
-  uint32_t rpc_id_;
-};
-
-class ConnCtx {
-public:
-  ConnCtx(Conn *conn, void *buffer = nullptr, uint64_t length = 0);
-
-public:
-  virtual ~ConnCtx() = default;
-  virtual auto advance(int32_t finished_op) -> void = 0;
-
-protected:
-  Conn *conn_{nullptr}; // created in which Conn
-  union {
-    struct [[gnu::packed]] {
-      void *buffer_{nullptr}; // do not own
-      uint32_t length_{0};
-      uint32_t rpc_id_{0};
-    };
-    BufferMeta local_;
-  };
-  TIMER;
 };
 
 } // namespace rdma

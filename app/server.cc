@@ -1,17 +1,18 @@
-#include "server.h"
-#include "common.h"
+#include "server.hh"
+#include "hello.pb.h"
 
 auto main(int argc, char *argv[]) -> int {
   rdma::Server s(argv[1], argv[2]);
 
-  s.registerHandler(0, [](rdma::ServerSideCtx *ctx) -> void {
-    auto request = ctx->getRequest<HelloRequest>();
-    printf("receiver request from %d, number is %d, payload is \"%s\"\n",
-           request->who, request->which, request->payload);
-    HelloResponse resp;
-    snprintf(resp.payload, sizeof(resp.payload), "%d-%d-%s-world-done",
-             request->who, request->which, request->payload);
-    ctx->setResponse(&resp);
+  s.registerHandler(0, [](rdma::RPCHandle &handle) -> void {
+    echo::Hello request;
+    handle.getRequest(request);
+    printf("receive request: \"%s\"\n", request.greeting().c_str());
+    echo::Hello response;
+    auto thread_id = std::hash<std::thread::id>{}(std::this_thread::get_id());
+    response.set_greeting("hi from server thread " + std::to_string(thread_id));
+    printf("set response: \"%s\"\n", response.greeting().c_str());
+    handle.setResponse(response);
   });
 
   return s.run();

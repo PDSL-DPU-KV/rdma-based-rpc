@@ -1,0 +1,16 @@
+[wrap-file]
+directory = protobuf-3.20.1
+source_url = https://github.com/protocolbuffers/protobuf/releases/download/v3.20.1/protobuf-all-3.20.1.tar.gz
+source_filename = protobuf-all-3.20.1.tar.gz
+source_hash = 3a400163728db996e8e8d21c7dfb3c239df54d0813270f086c4030addeae2fad
+patch_filename = protobuf_3.20.1-1_patch.zip
+patch_url = https://wrapdb.mesonbuild.com/v2/protobuf_3.20.1-1/get_patch
+patch_hash = 3aa021af7dfaa1e759d3a69f20d3c19a5822d2b882f42b9893a94589c23ce030
+wrapdb_version = 3.20.1-1
+
+[provide]
+protobuf = protobuf_dep
+protobuf-lite = protobuf_lite_dep
+protoc = protoc_dep
+program_names = protoc
+

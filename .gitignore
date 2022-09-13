@@ -11,3 +11,6 @@ build
 # subproject
 /subprojects/*
 !/subprojects/*.wrap
+
+# protobuf
+pb

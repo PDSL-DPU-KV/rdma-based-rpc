@@ -106,12 +106,12 @@ auto Server::handleConnEvent() -> void {
   }
 }
 
-auto Server::registerHandler(uint32_t id, Handle fn) -> void {
+auto Server::registerHandler(uint32_t id, Handler fn) -> void {
   assert(handlers_.find(id) == handlers_.end());
   handlers_[id] = fn;
 }
 
-auto Server::getHandler(uint32_t id) -> Handle { return handlers_.at(id); }
+auto Server::getHandler(uint32_t id) -> Handler { return handlers_.at(id); }
 
 auto Server::onConnEvent([[gnu::unused]] int fd, [[gnu::unused]] short what,
                          void *arg) -> void {
@@ -139,53 +139,51 @@ Server::~Server() {
   info("cleanup the local resources");
 }
 
-ServerSideCtx::ServerSideCtx(Conn *conn, void *buffer, uint32_t length)
+Server::Context::Context(Conn *conn, void *buffer, uint32_t length)
     : ConnCtx(conn, buffer, length), remote_meta_(new BufferMeta) {
   meta_mr_ = ibv_reg_mr(conn->pd_, remote_meta_, sizeof(BufferMeta),
                         IBV_ACCESS_LOCAL_WRITE);
   checkp(meta_mr_, "fail to register remote meta receiver");
 }
 
-ServerSideCtx::~ServerSideCtx() {
+Server::Context::~Context() {
   check(ibv_dereg_mr(meta_mr_), "fail to deregister remote meta receiver");
   delete remote_meta_;
 }
 
-auto ServerSideCtx::prepare() -> void {
+auto Server::Context::prepare() -> void {
   state_ = WaitingForBufferMeta;
   conn_->postRecv(this, meta_mr_->addr, meta_mr_->length, meta_mr_->lkey);
 }
 
-auto ServerSideCtx::swap(ServerSideCtx *r) -> void {
+auto Server::Context::swap(Context *r) -> void {
   assert(conn_ == r->conn_);
   std::swap(state_, r->state_);
   std::swap(remote_meta_, r->remote_meta_);
   std::swap(meta_mr_, r->meta_mr_);
-  std::swap(local_, r->local_);
+  std::swap(meta_, r->meta_);
 }
 
-auto ServerSideCtx::advance(int32_t finished_op) -> void {
-  switch (finished_op) {
+auto Server::Context::advance(const ibv_wc &wc) -> void {
+  switch (wc.opcode) {
   case IBV_WC_RECV: {
     assert(state_ == WaitingForBufferMeta);
-    info("remote memory region: address: %p, length: %d", remote_meta_->addr_,
-         remote_meta_->length_);
     state_ = ReadingRequest;
-    assert(buffer_ != nullptr);
-    conn_->postRead(this, buffer_, length_, conn_->buffer_mr_->lkey,
-                    remote_meta_->addr_, conn_->remote_buffer_key_);
+    conn_->postRead(this, rawBuf(), remote_meta_->buf_len_,
+                    conn_->buffer_mr_->lkey, remote_meta_->buf_,
+                    conn_->remote_buffer_key_);
     break;
   }
   case IBV_WC_RDMA_READ: {
     assert(state_ == ReadingRequest);
     state_ = FilledWithRequest;
     auto conn = static_cast<ConnWithCtx *>(conn_);
-    ServerSideCtx *sender = nullptr;
+    Context *sender = nullptr;
     while (not conn->senders_.pop(sender)) {
       pause();
     }
     sender->swap(this);
-    conn->pool_.enqueue(&ServerSideCtx::handleWrapper, sender);
+    conn->pool_.enqueue(&Context::handleWrapper, sender);
     prepare();
     break;
   }
@@ -198,35 +196,35 @@ auto ServerSideCtx::advance(int32_t finished_op) -> void {
     break;
   }
   default: {
-    info("unexpected wc opcode: %d", finished_op);
+    info("unexpected wc opcode: %d", wc.opcode);
     break;
   }
   }
 }
 
-auto ServerSideCtx::handleWrapper() -> void {
-  static_cast<ConnWithCtx *>(conn_)->s_->getHandler(rpc_id_)(this);
+auto Server::Context::handleWrapper() -> void {
+  static_cast<ConnWithCtx *>(conn_)->s_->getHandler(header().rpc_id_)(*this);
   state_ = WritingResponse;
-  conn_->postWriteImm(this, buffer_, length_, conn_->buffer_mr_->lkey,
-                      remote_meta_->addr_, conn_->remote_buffer_key_);
+  conn_->postWriteImm(this, rawBuf(), readableLength(), conn_->buffer_mr_->lkey,
+                      remote_meta_->buf_, conn_->remote_buffer_key_);
 }
 
-ConnWithCtx::ConnWithCtx(Server *s, rdma_cm_id *id)
+Server::ConnWithCtx::ConnWithCtx(Server *s, rdma_cm_id *id)
     : Conn(id, max_context_num), s_(s), pool_(default_thread_pool_size) {
   for (uint32_t i = 0; i < max_receiver_num; i++) {
-    receivers_[i] = new ServerSideCtx(this, bufferPage(i), buffer_page_size);
+    receivers_[i] = new Context(this, bufferPage(i), buffer_page_size);
     receivers_[i]->prepare(); // only receiver need prepare for request
   }
   for (uint32_t i = max_receiver_num; i < max_context_num; i++) {
-    senders_.push(new ServerSideCtx(this, bufferPage(i), buffer_page_size));
+    senders_.push(new Context(this, bufferPage(i), buffer_page_size));
   }
 }
 
-ConnWithCtx::~ConnWithCtx() {
+Server::ConnWithCtx::~ConnWithCtx() {
   for (auto p : receivers_) {
     delete p;
   }
-  ServerSideCtx *ctx = nullptr;
+  Context *ctx = nullptr;
   for (uint32_t i = 0; i < max_sender_num; i++) {
     assert(senders_.pop(ctx));
     delete ctx;
