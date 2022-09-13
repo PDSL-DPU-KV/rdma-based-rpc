@@ -1,4 +1,4 @@
-#include "server.h"
+#include "server.hh"
 #include <signal.h>
 
 namespace rdma {

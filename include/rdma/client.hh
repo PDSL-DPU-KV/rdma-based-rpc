@@ -1,8 +1,8 @@
 #ifndef __RDMA_EXAMPLE_CLIENT__
 #define __RDMA_EXAMPLE_CLIENT__
 
-#include "common.h"
-#include "ring.h"
+#include "common.hh"
+#include "ring.hh"
 
 namespace rdma {
 

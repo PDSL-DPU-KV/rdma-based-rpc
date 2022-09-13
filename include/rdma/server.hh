@@ -1,10 +1,10 @@
 #ifndef __RDMA_EXAMPLE_SERVER__
 #define __RDMA_EXAMPLE_SERVER__
 
-#include "common.h"
-#include "ring.h"
+#include "common.hh"
+#include "ring.hh"
+#include "thread_pool.hh"
 #include <functional>
-#include <thread_pool.h>
 #include <unordered_map>
 
 namespace rdma {

@@ -1,7 +1,7 @@
 #ifndef __RDMA_EXAMPLE_RING__
 #define __RDMA_EXAMPLE_RING__
 
-#include "util.h"
+#include "util.hh"
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -52,14 +52,13 @@ public:
 
     const uint32_t capacity = capacity_;
     uint32_t producer_old_head =
-        producer_handle_.head_.load(std::memory_order_relaxed);
+        producer_handle_.head_.load(std::memory_order_consume);
     // move producer head
     auto ok = true;
     do {
-      std::atomic_thread_fence(std::memory_order_acquire);
-
-      consumer_tail = consumer_handle_.tail_.load(std::memory_order_acquire);
-      n_free = capacity + consumer_tail - producer_old_head;
+      n_free = capacity +
+               consumer_handle_.tail_.load(std::memory_order_consume) -
+               producer_old_head;
       if (n_free < 1)
         return false;
       producer_new_head = producer_old_head + 1;
@@ -86,12 +85,10 @@ public:
     uint32_t consumer_new_head;
 
     // move consumer head
-    consumer_old_head = consumer_handle_.head_.load(std::memory_order_relaxed);
+    consumer_old_head = consumer_handle_.head_.load(std::memory_order_consume);
     auto ok = true;
     do {
-      std::atomic_thread_fence(std::memory_order_acquire);
-
-      auto n_remain = producer_handle_.tail_.load(std::memory_order_acquire) -
+      auto n_remain = producer_handle_.tail_.load(std::memory_order_consume) -
                       consumer_old_head;
       if (n_remain < 1)
         return false;

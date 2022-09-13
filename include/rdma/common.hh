@@ -1,7 +1,7 @@
 #ifndef __RDMA_EXAMPLE_COMMON__
 #define __RDMA_EXAMPLE_COMMON__
 
-#include "util.h"
+#include "util.hh"
 #include <array>
 #include <atomic>
 #include <cassert>

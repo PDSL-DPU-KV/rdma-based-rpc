@@ -1,7 +1,7 @@
 #ifndef __RDMA_EXAMPLE_THREAD_POOL__
 #define __RDMA_EXAMPLE_THREAD_POOL__
 
-#include "util.h"
+#include "util.hh"
 #include <atomic>
 #include <condition_variable>
 #include <functional>

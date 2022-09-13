@@ -1,5 +1,13 @@
+# editor
 .vscode
+
+# build
 build
+
+# cache
 .cache
 .clangd
-compile_commands.json
+
+# subproject
+/subprojects/*
+!/subprojects/*.wrap
