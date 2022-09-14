@@ -19,9 +19,6 @@ namespace rdma {
 class Conn {
   friend class Client;
   friend class Server;
-  friend class ConnCtx;
-  friend class ClientSideCtx;
-  friend class ServerSideCtx;
 
 public:
   constexpr static uint32_t cq_capacity = 32;
@@ -72,6 +69,10 @@ public:
 public:
   auto qpState() -> void;
   auto bufferPage(uint32_t id) -> void *;
+
+public:
+  auto remoteKey() -> uint32_t;
+  auto loaclKey() -> uint32_t;
 
 protected:
   static auto onRecv(int fd, short what, void *arg) -> void;

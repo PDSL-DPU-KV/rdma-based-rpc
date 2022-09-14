@@ -1,2 +1,18 @@
-option('mode', type: 'string', value: 'poll', description: 'option for event handle mode')
-option('use_hugepage', type: 'feature', value: 'disabled', description: 'option for using hugepage')
+option(
+    'mode',
+    type: 'string',
+    value: 'poll',
+    description: 'option for event handle mode',
+)
+option(
+    'use_hugepage',
+    type: 'feature',
+    value: 'disabled',
+    description: 'option for using hugepage',
+)
+option(
+    'protoc_path',
+    type: 'string',
+    value: 'protoc',
+    description: 'path of protoc',
+)

@@ -169,9 +169,8 @@ auto Server::Context::advance(const ibv_wc &wc) -> void {
   case IBV_WC_RECV: {
     assert(state_ == WaitingForBufferMeta);
     state_ = ReadingRequest;
-    conn_->postRead(this, rawBuf(), remote_meta_->buf_len_,
-                    conn_->buffer_mr_->lkey, remote_meta_->buf_,
-                    conn_->remote_buffer_key_);
+    conn_->postRead(this, rawBuf(), remote_meta_->buf_len_, conn_->loaclKey(),
+                    remote_meta_->buf_, conn_->remoteKey());
     break;
   }
   case IBV_WC_RDMA_READ: {
@@ -205,8 +204,8 @@ auto Server::Context::advance(const ibv_wc &wc) -> void {
 auto Server::Context::handleWrapper() -> void {
   static_cast<ConnWithCtx *>(conn_)->s_->getHandler(header().rpc_id_)(*this);
   state_ = WritingResponse;
-  conn_->postWriteImm(this, rawBuf(), readableLength(), conn_->buffer_mr_->lkey,
-                      remote_meta_->buf_, conn_->remote_buffer_key_);
+  conn_->postWriteImm(this, rawBuf(), readableLength(), conn_->loaclKey(),
+                      remote_meta_->buf_, conn_->remoteKey());
 }
 
 Server::ConnWithCtx::ConnWithCtx(Server *s, rdma_cm_id *id)

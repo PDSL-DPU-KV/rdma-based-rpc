@@ -2,7 +2,9 @@ project(
     'hello-rdma',
     'cpp',
     version: '1.0',
-    default_options: ['cpp_std=c++11'],
+    default_options: [
+        'cpp_std=c++14',
+    ],
 )
 
 # options
@@ -47,10 +49,6 @@ incs = [
     include_directories('include/rdma'),
     include_directories('include/util'),
 ]
-
-# program
-
-protoc = find_program('protoc')
 
 # sub-directories
 
