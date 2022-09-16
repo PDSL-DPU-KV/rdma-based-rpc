@@ -45,7 +45,20 @@ public:
   }
 
 public:
-  template <typename... Args> auto push(Args &&...args) -> bool {
+  template <typename... Args> auto push(Args &&...args) -> void {
+    while (not tryPush(args...)) {
+      pause();
+    }
+  }
+
+  auto pop(ValueType &e) -> void {
+    while (not tryPop(e)) {
+      pause();
+    }
+  }
+
+public:
+  template <typename... Args> auto tryPush(Args &&...args) -> bool {
     uint32_t producer_new_head;
     uint32_t n_free;
 
@@ -79,7 +92,7 @@ public:
     return true;
   }
 
-  auto pop(ValueType &e) -> bool {
+  auto tryPop(ValueType &e) -> bool {
     uint32_t consumer_old_head;
     uint32_t consumer_new_head;
 

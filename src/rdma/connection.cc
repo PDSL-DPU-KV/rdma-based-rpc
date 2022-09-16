@@ -195,8 +195,8 @@ auto Conn::postRead(void *ctx, void *local_addr, uint32_t length, uint32_t lkey,
 }
 
 auto Conn::postWriteImm(void *ctx, void *local_addr, uint32_t length,
-                        uint32_t lkey, void *remote_addr, uint32_t rkey)
-    -> void {
+                        uint32_t lkey, void *remote_addr, uint32_t rkey,
+                        uint32_t imm) -> void {
   ibv_sge sge{
       .addr = (uint64_t)local_addr,
       .length = length,
@@ -209,7 +209,7 @@ auto Conn::postWriteImm(void *ctx, void *local_addr, uint32_t length,
       .num_sge = 1,
       .opcode = IBV_WR_RDMA_WRITE_WITH_IMM,
       .send_flags = IBV_SEND_SIGNALED,
-      .imm_data = 0x1234, // TODO: use imm_data to pass some meta data
+      .imm_data = imm,
       .wr{
           .rdma{
               .remote_addr = (uint64_t)remote_addr,

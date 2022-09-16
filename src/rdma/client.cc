@@ -1,4 +1,5 @@
 #include "client.hh"
+#include <signal.h>
 
 namespace rdma {
 
@@ -7,12 +8,15 @@ Client::Client() {
   checkp(ec_, "fail to create event channel");
 
 #ifdef USE_NOTIFY
-  ret = evthread_use_pthreads();
+  auto ret = evthread_use_pthreads();
   check(ret, "fail to open multi-thread support for libevent");
   base_ = event_base_new();
   checkp(base_, "fail to allocate event loop");
-  ret = conn_->registerCompEvent(base_);
-  check(ret, "fail to register completion event");
+  exit_event_ = event_new(base_, SIGINT, EV_SIGNAL, &Client::onExit, this);
+  checkp(exit_event_, "fail to create exit event");
+  ret = event_add(exit_event_, nullptr);
+  check(ret, "fail to register exit event");
+  info("register all events into event loop");
   bg_poller_ = new std::thread([this]() -> void {
     info("background poller start working");
     check(event_base_dispatch(base_), "poller stop with error");
@@ -23,22 +27,22 @@ Client::Client() {
 
 auto Client::connect(const char *host, const char *port) -> uint32_t {
   int ret = 0;
-  addrinfo *addr_;
+  addrinfo *addr;
   rdma_cm_id *id;
   rdma_cm_event *e;
 
   ret = rdma_create_id(ec_, &id, nullptr, RDMA_PS_TCP);
   check(ret, "fail to create cm id");
 
-  ret = getaddrinfo(host, port, nullptr, &addr_);
+  ret = getaddrinfo(host, port, nullptr, &addr);
   check(ret, "fail to parse host and port");
 
   info("remote address: %s:%s", host, port);
 
   info("initialize event channel and identifier");
 
-  ret = rdma_resolve_addr(id, nullptr, addr_->ai_addr,
-                          default_connection_timeout);
+  ret =
+      rdma_resolve_addr(id, nullptr, addr->ai_addr, default_connection_timeout);
   check(ret, "fail to resolve address");
   e = waitEvent(RDMA_CM_EVENT_ADDR_RESOLVED);
   checkp(e, "do not get the resolved address event");
@@ -56,7 +60,12 @@ auto Client::connect(const char *host, const char *port) -> uint32_t {
 
   info("resolve the route");
   uint32_t conn_id = conns_.size();
-  conns_.push_back(new ConnWithCtx(this, id, addr_));
+  auto conn = new ConnWithCtx(conn_id, this, id, addr);
+  conns_.push_back(conn);
+#ifdef USE_NOTIFY
+  ret = conn->registerCompEvent(base_);
+  check(ret, "fail to register completion event");
+#endif
   return conn_id;
 }
 
@@ -81,17 +90,20 @@ auto Client::waitEvent(rdma_cm_event_type expected) -> rdma_cm_event * {
   return nullptr;
 }
 
+auto Client::findCtx(uint32_t ctx_id) -> Context * { return id2ctx_[ctx_id]; }
+
 auto Client::call(uint32_t conn_id, uint32_t rpc_id, const message_t &request,
-                  message_t &response) -> void {
-  conns_[conn_id]->call(rpc_id, request, response);
+                  message_t &response) -> Status {
+  return conns_[conn_id]->call(rpc_id, request, response);
 }
 
 Client::~Client() {
 #ifdef USE_NOTIFY
-  ret = event_base_loopbreak(base_);
+  auto ret = event_base_loopbreak(base_);
   check(ret, "fail to stop event loop");
   bg_poller_->join();
   delete bg_poller_;
+  event_free(exit_event_);
   event_base_free(base_);
 #endif
 
@@ -102,6 +114,19 @@ Client::~Client() {
   info("cleanup the local resources");
 }
 
+#ifdef USE_NOTIFY
+auto Client::onExit(int fd, short what, void *arg) -> void {
+  Client *c = reinterpret_cast<Client *>(arg);
+  auto ret = event_base_loopbreak(c->base_);
+  check(ret, "fail to stop event loop");
+  info("stop event loop");
+  for (auto &p : c->id2ctx_) {
+    p.second->state_ = Context::Stopped;
+    p.second->cv_.notify_all();
+  }
+}
+#endif
+
 auto Client::Context::call(uint32_t rpc_id, const message_t &request) -> void {
   assert(state_ == Vacant);
   setRequest(request);
@@ -111,8 +136,8 @@ auto Client::Context::call(uint32_t rpc_id, const message_t &request) -> void {
   conn_->postRecv(this, rawBuf(), readableLength(), conn_->loaclKey());
 }
 
-Client::Context::Context(Conn *conn, void *buffer, uint32_t size)
-    : ConnCtx(conn, buffer, size) {
+Client::Context::Context(uint32_t id, Conn *conn, void *buffer, uint32_t size)
+    : ConnCtx(id, conn, buffer, size) {
   meta_mr_ =
       ibv_reg_mr(conn->pd_, &meta_, sizeof(BufferMeta), IBV_ACCESS_LOCAL_WRITE);
   checkp(meta_mr_, "fail to register local meta sender");
@@ -127,6 +152,12 @@ auto Client::Context::advance(const ibv_wc &wc) -> void {
     break;
   }
   case IBV_WC_RECV_RDMA_WITH_IMM: {
+    if (wc.imm_data != id_) {
+      reinterpret_cast<ConnWithCtx *>(conn_)
+          ->c_->findCtx(wc.imm_data)
+          ->advance(wc);
+      return;
+    }
     assert(state_ == WaitingForResponse);
     state_ = Vacant;
     cv_.notify_all();
@@ -139,19 +170,25 @@ auto Client::Context::advance(const ibv_wc &wc) -> void {
   }
 }
 
-auto Client::Context::wait(message_t &response) -> void {
+auto Client::Context::wait(message_t &response) -> Status {
   std::unique_lock<std::mutex> l(mu_);
-  cv_.wait(l, [this]() -> bool { return state_ == Vacant; });
+  cv_.wait(l,
+           [this]() -> bool { return state_ == Vacant or state_ == Stopped; });
+  if (state_ != Vacant) {
+    return Status::CallFailure();
+  }
   getResponse(response);
+  return Status::Ok();
 }
 
 Client::Context::~Context() {
   check(ibv_dereg_mr(meta_mr_), "fail to deregister remote meta receiver");
 }
 
-Client::ConnWithCtx::ConnWithCtx(Client *c, rdma_cm_id *id, addrinfo *addr)
-    : Conn(id, max_context_num), addr_(addr), c_(c) {
-  auto ret = rdma_connect(id, &param_);
+Client::ConnWithCtx::ConnWithCtx(uint16_t conn_id, Client *c, rdma_cm_id *cm_id,
+                                 addrinfo *addr)
+    : Conn(cm_id, max_context_num), addr_(addr), c_(c) {
+  auto ret = rdma_connect(cm_id, &param_);
   check(ret, "fail to connect the remote side");
   auto e = c_->waitEvent(RDMA_CM_EVENT_ESTABLISHED);
   checkp(e, "do not get the established connection event");
@@ -162,25 +199,26 @@ Client::ConnWithCtx::ConnWithCtx(Client *c, rdma_cm_id *id, addrinfo *addr)
   info("establish the connection");
 
   for (uint32_t i = 0; i < max_context_num; i++) {
-    ctx_ring_.push(new Context(this, bufferPage(i), buffer_page_size));
+    uint32_t id = ((uint32_t)conn_id << 16) | i;
+    auto ctx = new Context(id, this, bufferPage(i), buffer_page_size);
+    senders_[i] = ctx;
+    ctx_ring_.push(ctx);
+    c_->id2ctx_[id] = ctx;
   }
 }
 
 auto Client::ConnWithCtx::call(uint32_t rpc_id, const message_t &request,
-                               message_t &response) -> void {
+                               message_t &response) -> Status {
   Context *ctx = nullptr;
-  while (not ctx_ring_.pop(ctx)) {
-    pause();
-  }
+  ctx_ring_.pop(ctx);
   ctx->call(rpc_id, request);
-  ctx->wait(response);
-  assert(ctx_ring_.push(ctx));
+  auto s = ctx->wait(response);
+  ctx_ring_.push(ctx);
+  return s;
 }
 
 Client::ConnWithCtx::~ConnWithCtx() {
-  Context *ctx;
-  for (uint32_t i = 0; i < max_context_num; i++) {
-    assert(ctx_ring_.pop(ctx));
+  for (auto ctx : senders_) {
     delete ctx;
   }
   auto ret = rdma_disconnect(id_);

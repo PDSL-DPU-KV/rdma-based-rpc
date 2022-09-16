@@ -140,7 +140,7 @@ Server::~Server() {
 }
 
 Server::Context::Context(Conn *conn, void *buffer, uint32_t length)
-    : ConnCtx(conn, buffer, length), remote_meta_(new BufferMeta) {
+    : ConnCtx(0, conn, buffer, length), remote_meta_(new BufferMeta) {
   meta_mr_ = ibv_reg_mr(conn->pd_, remote_meta_, sizeof(BufferMeta),
                         IBV_ACCESS_LOCAL_WRITE);
   checkp(meta_mr_, "fail to register remote meta receiver");
@@ -178,9 +178,7 @@ auto Server::Context::advance(const ibv_wc &wc) -> void {
     state_ = FilledWithRequest;
     auto conn = static_cast<ConnWithCtx *>(conn_);
     Context *sender = nullptr;
-    while (not conn->senders_.pop(sender)) {
-      pause();
-    }
+    conn->sender_pool_.pop(sender);
     sender->swap(this);
     conn->pool_.enqueue(&Context::handleWrapper, sender);
     prepare();
@@ -191,7 +189,7 @@ auto Server::Context::advance(const ibv_wc &wc) -> void {
     info("write done, wait for next request");
     state_ = Vacant;
     auto conn = static_cast<ConnWithCtx *>(conn_);
-    assert(conn->senders_.push(this));
+    conn->sender_pool_.push(this);
     break;
   }
   default: {
@@ -205,7 +203,7 @@ auto Server::Context::handleWrapper() -> void {
   static_cast<ConnWithCtx *>(conn_)->s_->getHandler(header().rpc_id_)(*this);
   state_ = WritingResponse;
   conn_->postWriteImm(this, rawBuf(), readableLength(), conn_->loaclKey(),
-                      remote_meta_->buf_, conn_->remoteKey());
+                      remote_meta_->buf_, conn_->remoteKey(), header().ctx_id_);
 }
 
 Server::ConnWithCtx::ConnWithCtx(Server *s, rdma_cm_id *id)
@@ -215,20 +213,20 @@ Server::ConnWithCtx::ConnWithCtx(Server *s, rdma_cm_id *id)
     receivers_[i]->prepare(); // only receiver need prepare for request
   }
   for (uint32_t i = max_receiver_num; i < max_context_num; i++) {
-    senders_.push(new Context(this, bufferPage(i), buffer_page_size));
+    auto idx = i - max_receiver_num;
+    senders_[idx] = new Context(this, bufferPage(i), buffer_page_size);
+    sender_pool_.push(senders_[idx]);
   }
 }
 
 Server::ConnWithCtx::~ConnWithCtx() {
+  pool_.stop();
   for (auto p : receivers_) {
     delete p;
   }
-  Context *ctx = nullptr;
-  for (uint32_t i = 0; i < max_sender_num; i++) {
-    assert(senders_.pop(ctx));
-    delete ctx;
+  for (auto p : senders_) {
+    delete p;
   }
-  pool_.stop();
 }
 
 } // namespace rdma

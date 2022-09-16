@@ -19,16 +19,17 @@ public:
 class [[gnu::packed]] MessageHeader {
 public:
   uint32_t msg_len_{0};
+  uint32_t ctx_id_{0};
   uint32_t rpc_id_{0};
   bool is_response_{false};
 };
 
 class ConnCtx : public RPCHandle {
 public:
-  explicit ConnCtx(Conn *conn, void *buffer = nullptr, uint32_t length = 0);
+  explicit ConnCtx(uint32_t id, Conn *conn, void *buffer = nullptr,
+                   uint32_t length = 0);
 
 public:
-
   virtual ~ConnCtx() = default;
   virtual auto advance(const ibv_wc &wc) -> void = 0;
 
@@ -50,6 +51,7 @@ protected:
   auto readableLength() -> uint32_t;
 
 protected:
+  uint32_t id_;
   Conn *conn_{nullptr}; // created in which Conn
   BufferMeta meta_{};
 };

@@ -46,7 +46,7 @@ class Server {
     constexpr static uint32_t max_receiver_num = max_context_num >> 1;
     constexpr static uint32_t max_sender_num =
         max_context_num - max_receiver_num;
-    constexpr static uint32_t default_thread_pool_size = 1;
+    constexpr static uint32_t default_thread_pool_size = 4;
 
   public:
     ConnWithCtx(Server *s, rdma_cm_id *id);
@@ -55,7 +55,8 @@ class Server {
   public:
     Server *s_{nullptr};
     std::array<Context *, max_receiver_num> receivers_{};
-    Ring<Context *, max_sender_num> senders_{};
+    std::array<Context *, max_sender_num> senders_{};
+    Ring<Context *, max_sender_num> sender_pool_{};
     ThreadPool pool_{default_thread_pool_size};
   };
 

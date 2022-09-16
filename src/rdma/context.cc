@@ -5,8 +5,8 @@ namespace rdma {
 BufferMeta::BufferMeta(void *buf, uint32_t buf_len)
     : buf_(buf), buf_len_(buf_len) {}
 
-ConnCtx::ConnCtx(Conn *conn, void *buffer, uint32_t length)
-    : conn_(conn), meta_(buffer, length) {
+ConnCtx::ConnCtx(uint32_t id, Conn *conn, void *buffer, uint32_t length)
+    : id_(id), conn_(conn), meta_(buffer, length) {
   reset();
 }
 
@@ -25,6 +25,7 @@ auto ConnCtx::getMessage(message_t &message) -> void {
 
 auto ConnCtx::setRequest(const message_t &message) -> void {
   setMessage(message);
+  header().ctx_id_ = id_;
   header().is_response_ = false;
 }
 

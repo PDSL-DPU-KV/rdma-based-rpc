@@ -64,7 +64,7 @@ public:
   auto postRead(void *ctx, void *local_addr, uint32_t length, uint32_t lkey,
                 void *remote_addr, uint32_t rkey) -> void;
   auto postWriteImm(void *ctx, void *local_addr, uint32_t length, uint32_t lkey,
-                    void *remote_addr, uint32_t rkey) -> void;
+                    void *remote_addr, uint32_t rkey, uint32_t imm) -> void;
 
 public:
   auto qpState() -> void;
