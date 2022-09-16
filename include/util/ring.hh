@@ -6,6 +6,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdlib>
+#include <thread>
 
 namespace rdma {
 
@@ -47,13 +48,13 @@ public:
 public:
   template <typename... Args> auto push(Args &&...args) -> void {
     while (not tryPush(args...)) {
-      pause();
+      std::this_thread::yield();
     }
   }
 
   auto pop(ValueType &e) -> void {
     while (not tryPop(e)) {
-      pause();
+      std::this_thread::yield();
     }
   }
 
@@ -85,7 +86,7 @@ public:
     // wait and update producer tail
     while (producer_handle_.tail_.load(std::memory_order_relaxed) !=
            producer_old_head) {
-      pause();
+      std::this_thread::yield();
     }
 
     producer_handle_.tail_.store(producer_new_head, std::memory_order_release);
@@ -118,7 +119,7 @@ public:
     // wait and update consumer tail
     while (consumer_handle_.tail_.load(std::memory_order_relaxed) !=
            consumer_old_head) {
-      pause();
+      std::this_thread::yield();
     }
     consumer_handle_.tail_.store(consumer_new_head, std::memory_order_release);
     return true;

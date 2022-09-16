@@ -1,7 +1,6 @@
 #ifndef __RDMA_EXAMPLE_ERROR__
 #define __RDMA_EXAMPLE_ERROR__
 
-#include <emmintrin.h>
 #include <stdexcept>
 
 #ifdef USE_HUGEPAGE
@@ -107,8 +106,6 @@ inline static auto dealloc(void *p, uint32_t len) -> void {
 }
 
 constexpr static std::size_t cache_line_size = 64;
-
-static inline auto pause() -> void { _mm_pause(); }
 
 static inline auto alignUpPowerOf2(uint32_t x) -> uint32_t {
   x |= x >> 1;

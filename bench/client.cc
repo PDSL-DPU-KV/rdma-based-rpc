@@ -10,7 +10,7 @@ auto main(int argc, char *argv[]) -> int {
   rdma::AccStatistics<1000> s;
   auto fn = [&c, &s](uint32_t conn_id, uint32_t message_size) {
     bench::Payload request;
-    request.set_data("F", message_size);
+    request.mutable_data()->resize(message_size, 'F');
     bench::Payload response;
     rdma::Status ret;
     rdma::Timer t;
