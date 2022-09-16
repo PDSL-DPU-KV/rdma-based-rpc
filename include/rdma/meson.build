@@ -4,4 +4,5 @@ project_header_files += files(
     'context.hh',
     'message.hh',
     'server.hh',
+    'status.hh',
 )

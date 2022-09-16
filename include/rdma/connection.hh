@@ -23,7 +23,7 @@ class Conn {
 public:
   constexpr static uint32_t cq_capacity = 32;
   constexpr static uint32_t queue_depth = cq_capacity * 2;
-  constexpr static uint32_t buffer_page_size = 1024; // 1KB
+  constexpr static uint32_t buffer_page_size = 1024 * 64; // 64K
   using BufferPage = char[buffer_page_size];
 
 private:

@@ -147,7 +147,6 @@ auto Client::Context::advance(const ibv_wc &wc) -> void {
   switch (wc.opcode) {
   case IBV_WC_SEND: {
     assert(state_ == SendingBufferMeta);
-    info("send request buffer meta to the remote");
     state_ = WaitingForResponse;
     break;
   }

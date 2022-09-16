@@ -186,7 +186,6 @@ auto Server::Context::advance(const ibv_wc &wc) -> void {
   }
   case IBV_WC_RDMA_WRITE: {
     assert(state_ == WritingResponse);
-    info("write done, wait for next request");
     state_ = Vacant;
     auto conn = static_cast<ConnWithCtx *>(conn_);
     conn->sender_pool_.push(this);

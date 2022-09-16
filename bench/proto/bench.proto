@@ -1,0 +1,6 @@
+syntax = "proto3";
+package bench;
+
+option optimize_for = LITE_RUNTIME;
+
+message Payload { bytes data = 1; }

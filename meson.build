@@ -55,3 +55,4 @@ incs = [
 subdir('include')
 subdir('src')
 subdir('app')
+subdir('bench')
