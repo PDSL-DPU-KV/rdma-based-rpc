@@ -29,10 +29,7 @@ class Server {
   public:
     auto advance(const ibv_wc &wc) -> void override;
     auto prepare() -> void; // receiver
-    auto handleWrapper() -> void;
-
-  public:
-    auto swap(Context *r) -> void;
+    auto handler() -> void;
 
   public:
     State state_{Vacant}; // trace the state of ConnCtx
@@ -41,21 +38,20 @@ class Server {
   class ConnWithCtx final : public Conn {
   public:
     constexpr static uint32_t max_context_num = queue_depth >> 1;
-    constexpr static uint32_t max_receiver_num = max_context_num >> 1;
-    constexpr static uint32_t max_sender_num =
-        max_context_num - max_receiver_num;
-    constexpr static uint32_t default_thread_pool_size = 4;
 
   public:
     ConnWithCtx(Server *s, rdma_cm_id *id);
     ~ConnWithCtx();
 
   public:
+    auto serve() -> void;
+
+  public:
     Server *s_{nullptr};
-    std::array<Context *, max_receiver_num> receivers_{};
-    std::array<Context *, max_sender_num> senders_{};
-    Ring<Context *, max_sender_num> sender_pool_{};
-    ThreadPool pool_{default_thread_pool_size};
+    std::array<Context *, max_context_num> handle_ctx_{};
+    Ring<Context *, max_context_num> pending_ctx_{};
+    std::atomic_bool serving_{false};
+    std::thread *bg_handler_{nullptr};
   };
 
 public:

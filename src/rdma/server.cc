@@ -149,12 +149,6 @@ auto Server::Context::prepare() -> void {
   conn_->postRecv(this, rawBuf(), headerLength(), conn_->loaclKey());
 }
 
-auto Server::Context::swap(Context *r) -> void {
-  assert(conn_ == r->conn_);
-  std::swap(state_, r->state_);
-  std::swap(meta_, r->meta_);
-}
-
 auto Server::Context::advance(const ibv_wc &wc) -> void {
   switch (wc.opcode) {
   case IBV_WC_RECV: {
@@ -167,19 +161,13 @@ auto Server::Context::advance(const ibv_wc &wc) -> void {
   case IBV_WC_RDMA_READ: {
     assert(state_ == ReadingRequest);
     state_ = FilledWithRequest;
-    auto conn = static_cast<ConnWithCtx *>(conn_);
-    Context *sender = nullptr;
-    conn->sender_pool_.pop(sender);
-    sender->swap(this);
-    conn->pool_.enqueue(&Context::handleWrapper, sender);
-    prepare();
+    reinterpret_cast<ConnWithCtx *>(conn_)->pending_ctx_.push(this);
     break;
   }
   case IBV_WC_RDMA_WRITE: {
     assert(state_ == WritingResponse);
     state_ = Vacant;
-    auto conn = static_cast<ConnWithCtx *>(conn_);
-    conn->sender_pool_.push(this);
+    prepare();
     break;
   }
   default: {
@@ -189,7 +177,7 @@ auto Server::Context::advance(const ibv_wc &wc) -> void {
   }
 }
 
-auto Server::Context::handleWrapper() -> void {
+auto Server::Context::handler() -> void {
   static_cast<ConnWithCtx *>(conn_)->s_->getHandler(header().rpc_id_)(*this);
   state_ = WritingResponse;
   conn_->postWriteImm(this, rawBuf(), readableLength(), conn_->loaclKey(),
@@ -197,26 +185,35 @@ auto Server::Context::handleWrapper() -> void {
 }
 
 Server::ConnWithCtx::ConnWithCtx(Server *s, rdma_cm_id *id)
-    : Conn(id, max_context_num), s_(s), pool_(default_thread_pool_size) {
-  for (uint32_t i = 0; i < max_receiver_num; i++) {
-    receivers_[i] = new Context(this, bufferPage(i), buffer_page_size);
-    receivers_[i]->prepare(); // only receiver need prepare for request
+    : Conn(id, max_context_num), s_(s) {
+  for (uint32_t i = 0; i < max_context_num; i++) {
+    handle_ctx_[i] = new Context(this, bufferPage(i), buffer_page_size);
+    handle_ctx_[i]->prepare(); // only receiver need prepare for request
   }
-  for (uint32_t i = max_receiver_num; i < max_context_num; i++) {
-    auto idx = i - max_receiver_num;
-    senders_[idx] = new Context(this, bufferPage(i), buffer_page_size);
-    sender_pool_.push(senders_[idx]);
+  serving_ = true;
+  bg_handler_ = new std::thread(&ConnWithCtx::serve, this);
+}
+
+auto Server::ConnWithCtx::serve() -> void {
+  info("bg handler running");
+  Context *ctx;
+  while (serving_.load(std::memory_order_relaxed)) {
+    if (pending_ctx_.tryPop(ctx)) {
+      ctx->handler();
+    } else {
+      std::this_thread::yield();
+    }
   }
+  info("bg handler exits");
 }
 
 Server::ConnWithCtx::~ConnWithCtx() {
-  pool_.stop();
-  for (auto p : receivers_) {
+  for (auto p : handle_ctx_) {
     delete p;
   }
-  for (auto p : senders_) {
-    delete p;
-  }
+  serving_ = false;
+  bg_handler_->join();
+  delete bg_handler_;
 }
 
 } // namespace rdma
