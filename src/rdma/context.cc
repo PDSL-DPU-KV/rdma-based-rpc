@@ -56,6 +56,8 @@ auto ConnCtx::rawMessage() -> char * {
   return reinterpret_cast<char *>(meta_.buf_) + sizeof(MessageHeader);
 }
 
+auto ConnCtx::headerLength() -> uint32_t { return sizeof(MessageHeader); }
+
 auto ConnCtx::readableLength() -> uint32_t {
   return header().msg_len_ + sizeof(MessageHeader);
 }

@@ -18,6 +18,7 @@ public:
 
 class [[gnu::packed]] MessageHeader {
 public:
+  void *addr_{nullptr};
   uint32_t msg_len_{0};
   uint32_t ctx_id_{0};
   uint32_t rpc_id_{0};
@@ -46,6 +47,7 @@ private:
 protected:
   auto reset() -> void;
   auto header() -> MessageHeader &;
+  auto headerLength() -> uint32_t;
   auto rawBuf() -> void *;
   auto rawMessage() -> char *;
   auto readableLength() -> uint32_t;

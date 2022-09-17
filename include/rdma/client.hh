@@ -20,7 +20,7 @@ class Client {
 
   public:
     Context(uint32_t id, Conn *conn, void *buffer, uint32_t size);
-    ~Context();
+    ~Context() = default;
 
   public:
     auto advance(const ibv_wc &wc) -> void override;
@@ -29,8 +29,6 @@ class Client {
 
   public:
     std::atomic<State> state_{Vacant};
-    // register the local_ in ConnCtx, send to the server side
-    ibv_mr *meta_mr_{nullptr};
   };
 
   class ConnWithCtx final : public Conn {

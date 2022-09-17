@@ -36,8 +36,6 @@ class Server {
 
   public:
     State state_{Vacant}; // trace the state of ConnCtx
-    ibv_mr *meta_mr_{nullptr};
-    BufferMeta *remote_meta_{nullptr};
   };
 
   class ConnWithCtx final : public Conn {

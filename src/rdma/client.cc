@@ -132,16 +132,14 @@ auto Client::Context::call(uint32_t rpc_id, const message_t &request) -> void {
   assert(state_.load(std::memory_order_relaxed) == Vacant);
   setRequest(request);
   state_.store(SendingBufferMeta, std::memory_order_relaxed);
-  conn_->postSend(this, meta_mr_->addr, meta_mr_->length, meta_mr_->lkey);
+  conn_->postSend(this, rawBuf(), headerLength(), conn_->loaclKey());
   // NOTICE: must pre-post at here
   conn_->postRecv(this, rawBuf(), readableLength(), conn_->loaclKey());
 }
 
 Client::Context::Context(uint32_t id, Conn *conn, void *buffer, uint32_t size)
     : ConnCtx(id, conn, buffer, size) {
-  meta_mr_ =
-      ibv_reg_mr(conn->pd_, &meta_, sizeof(BufferMeta), IBV_ACCESS_LOCAL_WRITE);
-  checkp(meta_mr_, "fail to register local meta sender");
+  header().addr_ = rawBuf();
 }
 
 auto Client::Context::advance(const ibv_wc &wc) -> void {
@@ -179,10 +177,6 @@ auto Client::Context::wait(message_t &response) -> Status {
   }
   getResponse(response);
   return Status::Ok();
-}
-
-Client::Context::~Context() {
-  check(ibv_dereg_mr(meta_mr_), "fail to deregister remote meta receiver");
 }
 
 Client::ConnWithCtx::ConnWithCtx(uint16_t conn_id, Client *c, rdma_cm_id *cm_id,

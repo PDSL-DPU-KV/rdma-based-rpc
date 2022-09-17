@@ -140,27 +140,18 @@ Server::~Server() {
 }
 
 Server::Context::Context(Conn *conn, void *buffer, uint32_t length)
-    : ConnCtx(0, conn, buffer, length), remote_meta_(new BufferMeta) {
-  meta_mr_ = ibv_reg_mr(conn->pd_, remote_meta_, sizeof(BufferMeta),
-                        IBV_ACCESS_LOCAL_WRITE);
-  checkp(meta_mr_, "fail to register remote meta receiver");
-}
+    : ConnCtx(0, conn, buffer, length) {}
 
-Server::Context::~Context() {
-  check(ibv_dereg_mr(meta_mr_), "fail to deregister remote meta receiver");
-  delete remote_meta_;
-}
+Server::Context::~Context() {}
 
 auto Server::Context::prepare() -> void {
   state_ = WaitingForBufferMeta;
-  conn_->postRecv(this, meta_mr_->addr, meta_mr_->length, meta_mr_->lkey);
+  conn_->postRecv(this, rawBuf(), headerLength(), conn_->loaclKey());
 }
 
 auto Server::Context::swap(Context *r) -> void {
   assert(conn_ == r->conn_);
   std::swap(state_, r->state_);
-  std::swap(remote_meta_, r->remote_meta_);
-  std::swap(meta_mr_, r->meta_mr_);
   std::swap(meta_, r->meta_);
 }
 
@@ -169,8 +160,8 @@ auto Server::Context::advance(const ibv_wc &wc) -> void {
   case IBV_WC_RECV: {
     assert(state_ == WaitingForBufferMeta);
     state_ = ReadingRequest;
-    conn_->postRead(this, rawBuf(), remote_meta_->buf_len_, conn_->loaclKey(),
-                    remote_meta_->buf_, conn_->remoteKey());
+    conn_->postRead(this, rawBuf(), readableLength(), conn_->loaclKey(),
+                    header().addr_, conn_->remoteKey());
     break;
   }
   case IBV_WC_RDMA_READ: {
@@ -202,7 +193,7 @@ auto Server::Context::handleWrapper() -> void {
   static_cast<ConnWithCtx *>(conn_)->s_->getHandler(header().rpc_id_)(*this);
   state_ = WritingResponse;
   conn_->postWriteImm(this, rawBuf(), readableLength(), conn_->loaclKey(),
-                      remote_meta_->buf_, conn_->remoteKey(), header().ctx_id_);
+                      header().addr_, conn_->remoteKey(), header().ctx_id_);
 }
 
 Server::ConnWithCtx::ConnWithCtx(Server *s, rdma_cm_id *id)
