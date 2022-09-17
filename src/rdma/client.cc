@@ -1,4 +1,5 @@
 #include "client.hh"
+#include <atomic>
 #include <signal.h>
 
 namespace rdma {
@@ -121,16 +122,16 @@ auto Client::onExit(int fd, short what, void *arg) -> void {
   check(ret, "fail to stop event loop");
   info("stop event loop");
   for (auto &p : c->id2ctx_) {
-    p.second->state_ = Context::Stopped;
+    p.second->state_.store(Context::Stopped, std::memory_order_relaxed);
     p.second->cv_.notify_all();
   }
 }
 #endif
 
 auto Client::Context::call(uint32_t rpc_id, const message_t &request) -> void {
-  assert(state_ == Vacant);
+  assert(state_.load(std::memory_order_relaxed) == Vacant);
   setRequest(request);
-  state_ = SendingBufferMeta;
+  state_.store(SendingBufferMeta, std::memory_order_relaxed);
   conn_->postSend(this, meta_mr_->addr, meta_mr_->length, meta_mr_->lkey);
   // NOTICE: must pre-post at here
   conn_->postRecv(this, rawBuf(), readableLength(), conn_->loaclKey());
@@ -146,8 +147,8 @@ Client::Context::Context(uint32_t id, Conn *conn, void *buffer, uint32_t size)
 auto Client::Context::advance(const ibv_wc &wc) -> void {
   switch (wc.opcode) {
   case IBV_WC_SEND: {
-    assert(state_ == SendingBufferMeta);
-    state_ = WaitingForResponse;
+    assert(state_.load(std::memory_order_relaxed) == SendingBufferMeta);
+    state_.store(WaitingForResponse, std::memory_order_relaxed);
     break;
   }
   case IBV_WC_RECV_RDMA_WITH_IMM: {
@@ -157,9 +158,8 @@ auto Client::Context::advance(const ibv_wc &wc) -> void {
           ->advance(wc);
       return;
     }
-    assert(state_ == WaitingForResponse);
-    state_ = Vacant;
-    cv_.notify_all();
+    assert(state_.load(std::memory_order_relaxed) == WaitingForResponse);
+    state_.store(Vacant, std::memory_order_relaxed);
     break;
   }
   default: {
@@ -170,9 +170,10 @@ auto Client::Context::advance(const ibv_wc &wc) -> void {
 }
 
 auto Client::Context::wait(message_t &response) -> Status {
-  std::unique_lock<std::mutex> l(mu_);
-  cv_.wait(l,
-           [this]() -> bool { return state_ == Vacant or state_ == Stopped; });
+  State s = Vacant;
+  do {
+    s = state_.load(std::memory_order_relaxed);
+  } while (s != Vacant and s != Stopped);
   if (state_ != Vacant) {
     return Status::CallFailure();
   }

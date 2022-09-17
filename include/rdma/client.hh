@@ -11,7 +11,7 @@ namespace rdma {
 class Client {
   class Context final : public ConnCtx {
   public:
-    enum State : int32_t {
+    enum State : uint32_t {
       Vacant,
       SendingBufferMeta,
       WaitingForResponse,
@@ -28,12 +28,9 @@ class Client {
     auto wait(message_t &response) -> Status;
 
   public:
-    State state_{Vacant};
+    std::atomic<State> state_{Vacant};
     // register the local_ in ConnCtx, send to the server side
     ibv_mr *meta_mr_{nullptr};
-    // sync
-    std::mutex mu_{};
-    std::condition_variable cv_{};
   };
 
   class ConnWithCtx final : public Conn {
