@@ -132,7 +132,7 @@ auto Client::Context::call(uint32_t rpc_id, const message_t &request) -> void {
   assert(state_.load(std::memory_order_relaxed) == Vacant);
   setRequest(request);
   state_.store(SendingBufferMeta, std::memory_order_relaxed);
-  conn_->postSend(this, rawBuf(), headerLength(), conn_->loaclKey());
+  conn_->postSend(this, rawBuf(), headerLength(), conn_->loaclKey(), true);
   // NOTICE: must pre-post at here
   conn_->postRecv(this, rawBuf(), readableLength(), conn_->loaclKey());
 }

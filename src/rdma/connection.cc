@@ -148,8 +148,8 @@ auto Conn::postRecv(void *ctx, void *local_addr, uint32_t length, uint32_t lkey)
   check(ret, "fail to post recv");
 }
 
-auto Conn::postSend(void *ctx, void *local_addr, uint32_t length, uint32_t lkey)
-    -> void {
+auto Conn::postSend(void *ctx, void *local_addr, uint32_t length, uint32_t lkey,
+                    bool need_inline) -> void {
   ibv_sge sge{
       .addr = (uint64_t)local_addr,
       .length = length,
@@ -163,6 +163,9 @@ auto Conn::postSend(void *ctx, void *local_addr, uint32_t length, uint32_t lkey)
       .opcode = IBV_WR_SEND,
       .send_flags = IBV_SEND_SIGNALED,
   };
+  if (need_inline) {
+    wr.send_flags |= IBV_SEND_INLINE;
+  }
   ibv_send_wr *bad = nullptr;
   auto ret = ibv_post_send(qp_, &wr, &bad);
   check(ret, "fail to post send");
@@ -192,6 +195,36 @@ auto Conn::postRead(void *ctx, void *local_addr, uint32_t length, uint32_t lkey,
   ibv_send_wr *bad = nullptr;
   auto ret = ibv_post_send(qp_, &wr, &bad);
   check(ret, "fail to post read");
+}
+
+auto Conn::postWrite(void *ctx, void *local_addr, uint32_t length,
+                     uint32_t lkey, void *remote_addr, uint32_t rkey,
+                     bool need_inline) -> void {
+  ibv_sge sge{
+      .addr = (uint64_t)local_addr,
+      .length = length,
+      .lkey = lkey,
+  };
+  ibv_send_wr wr{
+      .wr_id = (uintptr_t)ctx,
+      .next = nullptr,
+      .sg_list = &sge,
+      .num_sge = 1,
+      .opcode = IBV_WR_RDMA_WRITE,
+      .send_flags = IBV_SEND_SIGNALED,
+      .wr{
+          .rdma{
+              .remote_addr = (uint64_t)remote_addr,
+              .rkey = rkey,
+          },
+      },
+  };
+  if (need_inline) {
+    wr.send_flags |= IBV_SEND_INLINE;
+  }
+  ibv_send_wr *bad = nullptr;
+  auto ret = ibv_post_send(qp_, &wr, &bad);
+  check(ret, "fail to post write");
 }
 
 auto Conn::postWriteImm(void *ctx, void *local_addr, uint32_t length,

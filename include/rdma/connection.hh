@@ -59,10 +59,13 @@ public:
 public:
   auto postRecv(void *ctx, void *local_addr, uint32_t length, uint32_t lkey)
       -> void;
-  auto postSend(void *ctx, void *local_addr, uint32_t length, uint32_t lkey)
-      -> void;
+  auto postSend(void *ctx, void *local_addr, uint32_t length, uint32_t lkey,
+                bool need_inline = false) -> void;
   auto postRead(void *ctx, void *local_addr, uint32_t length, uint32_t lkey,
                 void *remote_addr, uint32_t rkey) -> void;
+  auto postWrite(void *ctx, void *local_addr, uint32_t length, uint32_t lkey,
+                 void *remote_addr, uint32_t rkey, bool need_inline = false)
+      -> void;
   auto postWriteImm(void *ctx, void *local_addr, uint32_t length, uint32_t lkey,
                     void *remote_addr, uint32_t rkey, uint32_t imm) -> void;
 
