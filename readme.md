@@ -69,8 +69,6 @@ sequenceDiagram
     Server->>Client: Post Write, Write Response
 ```
 
-Three kinds of context.
-
 Client Side Context
 
 ```mermaid
@@ -80,24 +78,16 @@ stateDiagram
     WaitingForResponse --> Vacant: Completion event of remote writing response.
 ```
 
-Server Side Receiver Context
+Server Side Context
 
 ```mermaid
 stateDiagram
     Vacant --> WaitingForBufferMeta: Initialize and wait for meta.
     WaitingForBufferMeta --> ReadingRequest: Receive meta and read request.
     ReadingRequest --> FilledWithRequest: Completion event of reading request.
-    FilledWithRequest --> WaitingForBufferMeta: Switch buffer with sender.
-```
-
-Server Side Sender Context
-
-```mermaid
-stateDiagram
-    Vacant --> FilledWithRequest: Switch buffer with receiver.
-    FilledWithRequest --> FilledWithResponse: Finish handling request.
+    FilledWithRequest --> FilledWithResponse: Push into queue for handler thread.
     FilledWithResponse --> WritingResponse: Fill with resposne and write response.
-    WritingResponse --> Vacant: Completion event of writing response.
+    WritingResponse --> WaitingForBufferMeta: Completion event of writing response.
 ```
 
 ## To-do
@@ -105,9 +95,13 @@ stateDiagram
 - [x] basic connection management
 - [x] add send and recv verbs
 - [x] add read and write verbs
-- [x] add ring for multi-client-calls.
-- [x] add thread pool
+- [x] add ring for multi-client-calls
+- [x] add background handler 
 - [ ] add memory pool
+
+## Bug
+
+- [ ] when serving multiple connections, server may go wrong.
 
 ## Reference
 
