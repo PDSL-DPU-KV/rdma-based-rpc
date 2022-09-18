@@ -33,7 +33,7 @@ We have two modes, 'poll' and 'notify'.
 It is better to use hugepages for NIC because of IOMMU. You can use option 'use_hugepage' to use anonymous hugepages as buffer.
 
 ```bash
-meson build -Dmode=poll -Duse_hugepage=enabled
+meson build -Dmode=poll -Duse_hugepage=enabled -Dprotoc_path=<protoc path>
 meson compile -C build
 ```
 
