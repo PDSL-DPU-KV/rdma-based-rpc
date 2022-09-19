@@ -201,7 +201,7 @@ auto Server::ConnWithCtx::serve() -> void {
     if (pending_ctx_.tryPop(ctx)) {
       ctx->handler();
     } else {
-      std::this_thread::yield();
+      pause();
     }
   }
   info("bg handler exits");
