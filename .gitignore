@@ -1,12 +1,13 @@
 # editor
-.vscode
+/.vscode/*
 
 # build
-build*
+/build/*
+/bin/*
 
 # cache
-.cache
-.clangd
+/.cache/*
+/.clangd/*
 
 # subproject
 /subprojects/*
@@ -14,3 +15,4 @@ build*
 
 # protobuf
 pb
+protoc.zip

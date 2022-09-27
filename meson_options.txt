@@ -10,9 +10,3 @@ option(
     value: 'disabled',
     description: 'option for using hugepage',
 )
-option(
-    'protoc_path',
-    type: 'string',
-    value: 'protoc',
-    description: 'path of protoc',
-)

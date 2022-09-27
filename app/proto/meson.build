@@ -4,9 +4,4 @@ if not fs.exists('../pb')
 endif
 message('Generating echo pb files...')
 
-run_command(
-    find_program(get_option('protoc_path'), version: '= 3.20.1'),
-    '--cpp_out=../pb',
-    'hello.proto',
-    check: true,
-)
+run_command(protoc, '--cpp_out=../pb', 'hello.proto', check: true)

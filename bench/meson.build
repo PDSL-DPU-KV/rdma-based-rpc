@@ -6,7 +6,7 @@ executable(
     './pb/bench.pb.cc',
     include_directories: [incs, './pb'],
     dependencies: deps,
-    link_with: rdma_common_lib,
+    link_with: rdma_rpc_lib,
 )
 
 executable(
@@ -15,5 +15,5 @@ executable(
     './pb/bench.pb.cc',
     include_directories: [incs, './pb'],
     dependencies: deps,
-    link_with: rdma_common_lib,
+    link_with: rdma_rpc_lib,
 )
