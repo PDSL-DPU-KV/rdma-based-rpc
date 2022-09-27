@@ -98,6 +98,10 @@ stateDiagram
 - [x] add ring for multi-client-calls
 - [x] add background handler 
 - [ ] add memory pool
+- [ ] add raw api
+- [ ] use one poller for all connections
+- [ ] accelerate small rpc
+- [ ] split request and replay
 
 ## Bug
 

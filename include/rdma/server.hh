@@ -4,7 +4,6 @@
 #include "connection.hh"
 #include "context.hh"
 #include "ring.hh"
-#include "thread_pool.hh"
 #include <functional>
 #include <unordered_map>
 

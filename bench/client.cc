@@ -16,7 +16,7 @@ auto main(int argc, char *argv[]) -> int {
     bench::Payload response;
     rdma::Status ret;
     // rdma::Timer t;
-    for (int i = 0; i < 1000000; i++) {
+    for (int i = 0; i < 10000; i++) {
       // t.begin();
       ret = c.call(conn_id, 0, request, response);
       // t.end();
@@ -29,7 +29,7 @@ auto main(int argc, char *argv[]) -> int {
   };
   t.begin();
   std::vector<std::thread> ts;
-  for (uint32_t i = 0; i < n_thread; i++) {
+  for (int32_t i = 0; i < n_thread; i++) {
     ts.emplace_back(fn, conn_id_1, message_size);
   }
   for (auto &t : ts) {
