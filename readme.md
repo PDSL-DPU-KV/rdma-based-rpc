@@ -99,13 +99,13 @@ stateDiagram
 - [x] add background handler 
 - [ ] add memory pool
 - [ ] add raw api
-- [ ] use one poller for all connections
+- [x] use one poller for all connections
 - [ ] accelerate small rpc
 - [ ] split request and replay
 
 ## Bug
 
-- [ ] when serving multiple connections, server may go wrong.
+- [x] when serving multiple connections, server may go wrong.
 
 ## Reference
 
