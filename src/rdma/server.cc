@@ -64,18 +64,23 @@ auto Server::handleConnEvent() -> void {
   switch (e->event) {
   case RDMA_CM_EVENT_CONNECT_REQUEST: { // throw when bad connection
     info("handle a connection request");
+    static uint16_t conn_id = 0;
 
-    auto ctx = new ConnWithCtx(this, client_id);
+    info("[debug] we got connection %d", conn_id);
 
-    auto ret = rdma_accept(client_id, &ctx->param_);
+    auto conn = new ConnWithCtx(conn_id++, this, client_id);
+#ifdef USE_POLL
+    bg_poller_.registerConn(conn);
+#endif
+    auto ret = rdma_accept(client_id, &conn->param_);
     check(ret, "fail to accept connection");
 
-    ctx->remote_buffer_key_ = *(uint32_t *)e->param.conn.private_data;
+    conn->remote_buffer_key_ = *(uint32_t *)e->param.conn.private_data;
 
     ret = rdma_ack_cm_event(e);
     warn(ret, "fail to ack event");
 
-    client_id->context = ctx;
+    client_id->context = conn;
     info("accept the connection");
 
 #ifdef USE_NOTIFY
@@ -95,7 +100,11 @@ auto Server::handleConnEvent() -> void {
   case RDMA_CM_EVENT_DISCONNECTED: {
     auto ret = rdma_ack_cm_event(e);
     warn(ret, "fail to ack event");
-    delete reinterpret_cast<ConnWithCtx *>(client_id->context);
+    auto conn = reinterpret_cast<ConnWithCtx *>(client_id->context);
+#ifdef USE_POLL
+    bg_poller_.deregisterConn(conn->id_);
+#endif
+    delete conn;
     info("close a connection");
     break;
   }
@@ -139,8 +148,8 @@ Server::~Server() {
   info("cleanup the local resources");
 }
 
-Server::Context::Context(Conn *conn, void *buffer, uint32_t length)
-    : ConnCtx(0, conn, buffer, length) {}
+Server::Context::Context(uint32_t id, Conn *conn, void *buffer, uint32_t length)
+    : ConnCtx(id, conn, buffer, length) {}
 
 Server::Context::~Context() {}
 
@@ -154,18 +163,21 @@ auto Server::Context::advance(const ibv_wc &wc) -> void {
   case IBV_WC_RECV: {
     assert(state_ == WaitingForBufferMeta);
     state_ = ReadingRequest;
+    info("[debug], conn %d ctx %x is reading reqeust", conn_->id_, id_);
     conn_->postRead(this, rawBuf(), readableLength(), conn_->loaclKey(),
                     header().addr_, conn_->remoteKey());
     break;
   }
   case IBV_WC_RDMA_READ: {
     assert(state_ == ReadingRequest);
+    info("[debug], conn %d ctx %x is push reqeust to handle", conn_->id_, id_);
     state_ = FilledWithRequest;
     reinterpret_cast<ConnWithCtx *>(conn_)->pending_ctx_.push(this);
     break;
   }
   case IBV_WC_RDMA_WRITE: {
     assert(state_ == WritingResponse);
+    info("[debug], conn %d ctx %x sent response", conn_->id_, id_);
     state_ = Vacant;
     prepare();
     break;
@@ -184,10 +196,11 @@ auto Server::Context::handler() -> void {
                       header().addr_, conn_->remoteKey(), header().ctx_id_);
 }
 
-Server::ConnWithCtx::ConnWithCtx(Server *s, rdma_cm_id *id)
-    : Conn(id, max_context_num), s_(s) {
+Server::ConnWithCtx::ConnWithCtx(uint16_t conn_id, Server *s, rdma_cm_id *cm_id)
+    : Conn(conn_id, cm_id, max_context_num), s_(s) {
   for (uint32_t i = 0; i < max_context_num; i++) {
-    handle_ctx_[i] = new Context(this, bufferPage(i), buffer_page_size);
+    auto ctx_id = (uint32_t)(conn_id) << 16 | i;
+    handle_ctx_[i] = new Context(ctx_id, this, bufferPage(i), buffer_page_size);
     handle_ctx_[i]->prepare(); // only receiver need prepare for request
   }
   serving_ = true;

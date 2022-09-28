@@ -10,6 +10,7 @@
 #include <event2/thread.h>
 #include <functional>
 #include <infiniband/verbs.h>
+#include <list>
 #include <netdb.h>
 #include <rdma/rdma_cma.h>
 #include <thread>
@@ -21,20 +22,25 @@ class Conn {
   friend class Server;
 
 public:
-  constexpr static uint32_t cq_capacity = 32;
-  constexpr static uint32_t queue_depth = cq_capacity * 2;
+  constexpr static uint32_t cq_capacity = 64;
+  constexpr static uint32_t queue_depth = cq_capacity;
   constexpr static uint32_t buffer_page_size = 1024 * 64; // 64K
   using BufferPage = char[buffer_page_size];
 
 private:
   constexpr static auto defaultQpInitAttr() -> ibv_qp_init_attr {
     return {
+        .qp_context = nullptr,
+        .send_cq = nullptr,
+        .recv_cq = nullptr,
+        .srq = nullptr,
         .cap =
             {
                 .max_send_wr = queue_depth,
                 .max_recv_wr = queue_depth,
                 .max_send_sge = 1,
                 .max_recv_sge = 1,
+                .max_inline_data = 0,
             },
         .qp_type = IBV_QPT_RC,
         .sq_sig_all = 0,
@@ -42,7 +48,7 @@ private:
   }
 
 public:
-  Conn(rdma_cm_id *id, uint32_t n_buffer_page);
+  Conn(uint16_t id, rdma_cm_id *cm_id, uint32_t n_buffer_page);
   ~Conn();
 
 #ifdef USE_NOTIFY
@@ -54,6 +60,7 @@ protected:
 #endif
 
 public:
+  auto id() -> uint16_t;
   auto poll() -> void;
 
 public:
@@ -81,7 +88,8 @@ protected:
   static auto onRecv(int fd, short what, void *arg) -> void;
 
 protected:
-  rdma_cm_id *id_{nullptr};
+  uint16_t id_{0};
+  rdma_cm_id *cm_id_{nullptr};
   ibv_qp *qp_{nullptr};
   ibv_pd *pd_{nullptr};
   ibv_cq *cq_{nullptr};
@@ -95,15 +103,34 @@ protected:
 
 #ifdef USE_NOTIFY
   event *comp_event_{nullptr};
-  ibv_comp_channel *cc_{nullptr};
+  ` ibv_comp_channel *cc_{nullptr};
 #endif
 
   rdma_conn_param param_{};
 
-#ifdef USE_POLL
-  std::atomic_bool running_{false};
-  std::thread *bg_poller_{nullptr};
-#endif
+  // #ifdef USE_POLL
+  //   std::atomic_bool running_{false};
+  //   std::thread *bg_poller_{nullptr};
+  // #endif
+};
+
+class ConnPoller {
+public:
+  ConnPoller();
+  ~ConnPoller();
+
+public:
+  auto registerConn(Conn *conn) -> void;
+  auto deregisterConn(uint16_t conn_id) -> void;
+
+private:
+  auto poll() -> void;
+
+private:
+  std::atomic_bool running_;
+  std::atomic_flag doorbell_;
+  std::list<Conn *> conns_;
+  std::thread *poller_{nullptr};
 };
 
 } // namespace rdma

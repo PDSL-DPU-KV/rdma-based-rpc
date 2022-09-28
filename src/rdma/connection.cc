@@ -1,13 +1,14 @@
 #include "connection.hh"
 #include "context.hh"
+#include <unistd.h>
 
 namespace rdma {
 
-Conn::Conn(rdma_cm_id *id, uint32_t n_buffer_page)
-    : id_(id), n_buffer_page_(n_buffer_page) {
+Conn::Conn(uint16_t id, rdma_cm_id *cm_id, uint32_t n_buffer_page)
+    : id_(id), cm_id_(cm_id), n_buffer_page_(n_buffer_page) {
   int ret = 0;
 
-  pd_ = ibv_alloc_pd(id_->verbs);
+  pd_ = ibv_alloc_pd(cm_id_->verbs);
   checkp(pd_, "fail to allocate pd");
 
 #ifdef USE_NOTIFY
@@ -23,7 +24,7 @@ Conn::Conn(rdma_cm_id *id, uint32_t n_buffer_page)
 #endif
 
 #ifdef USE_POLL
-  cq_ = ibv_create_cq(id_->verbs, cq_capacity, this, nullptr, 0);
+  cq_ = ibv_create_cq(cm_id_->verbs, cq_capacity, this, nullptr, 0);
 #endif
 
   checkp(cq_, "fail to allocate cq");
@@ -33,17 +34,17 @@ Conn::Conn(rdma_cm_id *id, uint32_t n_buffer_page)
   check(ret, "fail to request completion notification on a cq");
 #endif
 
-  id_->recv_cq = cq_;
-  id_->send_cq = cq_;
+  cm_id_->recv_cq = cq_;
+  cm_id_->send_cq = cq_;
 
   info("allocate protection domain, completion queue and memory region");
 
   auto init_attr = defaultQpInitAttr();
   init_attr.recv_cq = cq_;
   init_attr.send_cq = cq_;
-  ret = rdma_create_qp(id_, pd_, &init_attr);
+  ret = rdma_create_qp(cm_id_, pd_, &init_attr);
   check(ret, "fail to create queue pair");
-  qp_ = id_->qp;
+  qp_ = cm_id_->qp;
 
   info("create queue pair");
 
@@ -67,16 +68,18 @@ Conn::Conn(rdma_cm_id *id, uint32_t n_buffer_page)
 
   info("initialize connection parameters");
 
-#ifdef USE_POLL
-  bg_poller_ = new std::thread([this]() -> void {
-    running_ = true;
-    info("background poller start running");
-    while (running_) {
-      poll();
-    }
-  });
-#endif
+  // #ifdef USE_POLL
+  //   bg_poller_ = new std::thread([this]() -> void {
+  //     running_ = true;
+  //     info("background poller start running");
+  //     while (running_) {
+  //       poll();
+  //     }
+  //   });
+  // #endif
 }
+
+auto Conn::id() -> uint16_t { return id_; }
 
 auto Conn::poll() -> void {
   static ibv_wc wc[cq_capacity];
@@ -284,11 +287,11 @@ Conn::~Conn() {
   }
 #endif
 
-#ifdef USE_POLL
-  running_ = false;
-  bg_poller_->join();
-  delete bg_poller_;
-#endif
+  // #ifdef USE_POLL
+  //   running_ = false;
+  //   bg_poller_->join();
+  //   delete bg_poller_;
+  // #endif
 
   ret = ibv_destroy_qp(qp_);
   warn(ret, "fail to destroy qp");
@@ -300,7 +303,7 @@ Conn::~Conn() {
   warn(ret, "fail to destroy cc");
 #endif
 
-  ret = rdma_destroy_id(id_);
+  ret = rdma_destroy_id(cm_id_);
   warn(ret, "fail to destroy id");
 
   ret = ibv_dereg_mr(buffer_mr_);
@@ -312,6 +315,55 @@ Conn::~Conn() {
   dealloc(buffer_, n_buffer_page_ * buffer_page_size);
 
   info("cleanup connection resources");
+}
+
+ConnPoller::ConnPoller()
+    : running_(true), doorbell_(false),
+      poller_(new std::thread(&ConnPoller::poll, this)) {
+}
+
+ConnPoller::~ConnPoller() {
+  running_ = false;
+  poller_->join();
+  delete poller_;
+}
+
+auto ConnPoller::poll() -> void {
+  info("connection poller start");
+  while (running_.load(std::memory_order_relaxed)) {
+    if (not doorbell_.test_and_set()) {
+      for (auto conn : conns_) {
+        conn->poll();
+      }
+      doorbell_.clear();
+    }
+  }
+  info("connection poller stop");
+}
+
+auto ConnPoller::registerConn(Conn *conn) -> void {
+  while (true) {
+    if (not doorbell_.test_and_set()) {
+      conns_.emplace_back(conn);
+      doorbell_.clear();
+      break;
+    }
+  }
+}
+
+auto ConnPoller::deregisterConn(uint16_t conn_id) -> void {
+  while (true) {
+    if (not doorbell_.test_and_set()) {
+      for (auto it = conns_.begin(); it != conns_.end(); it++) {
+        if ((*it)->id() == conn_id) {
+          conns_.erase(it);
+          break;
+        }
+      }
+      doorbell_.clear();
+      break;
+    }
+  }
 }
 
 } // namespace rdma

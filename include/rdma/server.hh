@@ -4,7 +4,6 @@
 #include "connection.hh"
 #include "context.hh"
 #include "ring.hh"
-#include <functional>
 #include <unordered_map>
 
 namespace rdma {
@@ -22,7 +21,7 @@ class Server {
     };
 
   public:
-    Context(Conn *conn, void *buffer, uint32_t length);
+    Context(uint32_t id, Conn *conn, void *buffer, uint32_t length);
     ~Context();
 
   public:
@@ -39,7 +38,7 @@ class Server {
     constexpr static uint32_t max_context_num = queue_depth >> 1;
 
   public:
-    ConnWithCtx(Server *s, rdma_cm_id *id);
+    ConnWithCtx(uint16_t conn_id, Server *s, rdma_cm_id *cm_id);
     ~ConnWithCtx();
 
   public:
@@ -48,13 +47,14 @@ class Server {
   public:
     Server *s_{nullptr};
     std::array<Context *, max_context_num> handle_ctx_{};
-    Ring<Context *, max_context_num> pending_ctx_{};
+    SPSCRing<Context *, max_context_num> pending_ctx_{};
     std::atomic_bool serving_{false};
     std::thread *bg_handler_{nullptr};
   };
 
 public:
   constexpr static uint32_t default_back_log = 8;
+  constexpr static uint32_t max_connection_num = 64;
 
 public:
   using Handler = std::function<void(RPCHandle &)>;
@@ -87,6 +87,10 @@ private:
   event *exit_event_{nullptr};
 
   std::unordered_map<uint32_t, Handler> handlers_{};
+
+#ifdef USE_POLL
+  ConnPoller bg_poller_{};
+#endif
 };
 
 } // namespace rdma

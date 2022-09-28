@@ -67,6 +67,9 @@ auto Client::connect(const char *host, const char *port) -> uint32_t {
   ret = conn->registerCompEvent(base_);
   check(ret, "fail to register completion event");
 #endif
+#ifdef USE_POLL
+  bg_poller_.registerConn(conn);
+#endif
   return conn_id;
 }
 
@@ -109,6 +112,9 @@ Client::~Client() {
 #endif
 
   for (auto conn : conns_) {
+#ifdef USE_POLL
+    bg_poller_.deregisterConn(conn->id_);
+#endif
     delete conn;
   }
   rdma_destroy_event_channel(ec_);
@@ -122,16 +128,16 @@ auto Client::onExit(int fd, short what, void *arg) -> void {
   check(ret, "fail to stop event loop");
   info("stop event loop");
   for (auto &p : c->id2ctx_) {
-    p.second->state_.store(Context::Stopped, std::memory_order_relaxed);
+    p.second->state_.store(Context::Stopped);
     p.second->cv_.notify_all();
   }
 }
 #endif
 
 auto Client::Context::call(uint32_t rpc_id, const message_t &request) -> void {
-  assert(state_.load(std::memory_order_relaxed) == Vacant);
+  assert(state_.load() == Vacant);
   setRequest(request);
-  state_.store(SendingBufferMeta, std::memory_order_relaxed);
+  state_.store(SendingBufferMeta);
   conn_->postSend(this, rawBuf(), headerLength(), conn_->loaclKey());
   // NOTICE: must pre-post at here
   conn_->postRecv(this, rawBuf(), readableLength(), conn_->loaclKey());
@@ -145,8 +151,8 @@ Client::Context::Context(uint32_t id, Conn *conn, void *buffer, uint32_t size)
 auto Client::Context::advance(const ibv_wc &wc) -> void {
   switch (wc.opcode) {
   case IBV_WC_SEND: {
-    assert(state_.load(std::memory_order_relaxed) == SendingBufferMeta);
-    state_.store(WaitingForResponse, std::memory_order_relaxed);
+    assert(state_.load() == SendingBufferMeta);
+    state_.store(WaitingForResponse);
     break;
   }
   case IBV_WC_RECV_RDMA_WITH_IMM: {
@@ -156,8 +162,8 @@ auto Client::Context::advance(const ibv_wc &wc) -> void {
           ->advance(wc);
       return;
     }
-    assert(state_.load(std::memory_order_relaxed) == WaitingForResponse);
-    state_.store(Vacant, std::memory_order_relaxed);
+    assert(state_.load() == WaitingForResponse);
+    state_.store(Vacant);
     break;
   }
   default: {
@@ -181,7 +187,7 @@ auto Client::Context::wait(message_t &response) -> Status {
 
 Client::ConnWithCtx::ConnWithCtx(uint16_t conn_id, Client *c, rdma_cm_id *cm_id,
                                  addrinfo *addr)
-    : Conn(cm_id, max_context_num), addr_(addr), c_(c) {
+    : Conn(conn_id, cm_id, max_context_num), addr_(addr), c_(c) {
   auto ret = rdma_connect(cm_id, &param_);
   check(ret, "fail to connect the remote side");
   auto e = c_->waitEvent(RDMA_CM_EVENT_ESTABLISHED);
@@ -193,11 +199,11 @@ Client::ConnWithCtx::ConnWithCtx(uint16_t conn_id, Client *c, rdma_cm_id *cm_id,
   info("establish the connection");
 
   for (uint32_t i = 0; i < max_context_num; i++) {
-    uint32_t id = ((uint32_t)conn_id << 16) | i;
-    auto ctx = new Context(id, this, bufferPage(i), buffer_page_size);
+    uint32_t ctx_id = ((uint32_t)conn_id << 16) | i;
+    auto ctx = new Context(ctx_id, this, bufferPage(i), buffer_page_size);
     senders_[i] = ctx;
     ctx_ring_.push(ctx);
-    c_->id2ctx_[id] = ctx;
+    c_->id2ctx_[ctx_id] = ctx;
   }
 }
 
@@ -215,7 +221,7 @@ Client::ConnWithCtx::~ConnWithCtx() {
   for (auto ctx : senders_) {
     delete ctx;
   }
-  auto ret = rdma_disconnect(id_);
+  auto ret = rdma_disconnect(cm_id_);
   warn(ret, "fail to disconnect");
   auto e = c_->waitEvent(RDMA_CM_EVENT_DISCONNECTED);
   warnp(e, "do not get the disconnected event");

@@ -26,8 +26,8 @@ auto main(int argc, char *argv[]) -> int {
   };
 
   std::thread t2(fn, conn_id_2);
-  std::thread t3(fn, conn_id_2);
-  std::thread t4(fn, conn_id_1);
+  std::thread t3(fn, conn_id_1);
+  std::thread t4(fn, conn_id_2);
   fn(conn_id_1);
   t2.join();
   t3.join();

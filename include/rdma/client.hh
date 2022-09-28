@@ -46,7 +46,7 @@ class Client {
     addrinfo *addr_{nullptr};
     Client *c_{nullptr};
     std::array<Context *, max_context_num> senders_{};
-    Ring<Context *, max_context_num> ctx_ring_{};
+    MPMCRing<Context *, max_context_num> ctx_ring_{};
   };
 
 public:
@@ -79,6 +79,10 @@ private:
   event_base *base_{nullptr};
   event *exit_event_{nullptr};
   std::thread *bg_poller_{nullptr};
+#endif
+
+#ifdef USE_POLL
+  ConnPoller bg_poller_{};
 #endif
 };
 
