@@ -69,9 +69,7 @@ auto Server::handleConnEvent() -> void {
     info("[debug] we got connection %d", conn_id);
 
     auto conn = new ConnWithCtx(conn_id++, this, client_id);
-#ifdef USE_POLL
-    bg_poller_.registerConn(conn);
-#endif
+
     auto ret = rdma_accept(client_id, &conn->param_);
     check(ret, "fail to accept connection");
 
@@ -82,11 +80,6 @@ auto Server::handleConnEvent() -> void {
 
     client_id->context = conn;
     info("accept the connection");
-
-#ifdef USE_NOTIFY
-    ret = ctx->registerCompEvent(base_);
-    check(ret, "fail to register completion event");
-#endif
 
     info("register the connection completion event");
     break;
@@ -100,11 +93,7 @@ auto Server::handleConnEvent() -> void {
   case RDMA_CM_EVENT_DISCONNECTED: {
     auto ret = rdma_ack_cm_event(e);
     warn(ret, "fail to ack event");
-    auto conn = reinterpret_cast<ConnWithCtx *>(client_id->context);
-#ifdef USE_POLL
-    bg_poller_.deregisterConn(conn->id_);
-#endif
-    delete conn;
+    delete reinterpret_cast<ConnWithCtx *>(client_id->context);
     info("close a connection");
     break;
   }
@@ -205,6 +194,7 @@ Server::ConnWithCtx::ConnWithCtx(uint16_t conn_id, Server *s, rdma_cm_id *cm_id)
   }
   serving_ = true;
   bg_handler_ = new std::thread(&ConnWithCtx::serve, this);
+  s_->bg_poller_.registerConn(this);
 }
 
 auto Server::ConnWithCtx::serve() -> void {
@@ -221,6 +211,7 @@ auto Server::ConnWithCtx::serve() -> void {
 }
 
 Server::ConnWithCtx::~ConnWithCtx() {
+  s_->bg_poller_.deregisterConn(id_);
   for (auto p : handle_ctx_) {
     delete p;
   }

@@ -88,9 +88,7 @@ private:
 
   std::unordered_map<uint32_t, Handler> handlers_{};
 
-#ifdef USE_POLL
   ConnPoller bg_poller_{};
-#endif
 };
 
 } // namespace rdma

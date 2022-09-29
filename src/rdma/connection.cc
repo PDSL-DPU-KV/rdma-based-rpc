@@ -11,28 +11,8 @@ Conn::Conn(uint16_t id, rdma_cm_id *cm_id, uint32_t n_buffer_page)
   pd_ = ibv_alloc_pd(cm_id_->verbs);
   checkp(pd_, "fail to allocate pd");
 
-#ifdef USE_NOTIFY
-  cc_ = ibv_create_comp_channel(id_->verbs);
-  checkp(cc_, "fail to create completion channel");
-  id_->recv_cq_channel = cc_;
-  id_->send_cq_channel = cc_;
-  id_->pd = pd_;
-#endif
-
-#ifdef USE_NOTIFY
-  cq_ = ibv_create_cq(id_->verbs, cq_capacity, this, cc_, 0);
-#endif
-
-#ifdef USE_POLL
   cq_ = ibv_create_cq(cm_id_->verbs, cq_capacity, this, nullptr, 0);
-#endif
-
   checkp(cq_, "fail to allocate cq");
-
-#ifdef USE_NOTIFY
-  ret = ibv_req_notify_cq(cq_, 0);
-  check(ret, "fail to request completion notification on a cq");
-#endif
 
   cm_id_->recv_cq = cq_;
   cm_id_->send_cq = cq_;
@@ -67,16 +47,6 @@ Conn::Conn(uint16_t id, rdma_cm_id *cm_id, uint32_t n_buffer_page)
   param_.private_data_len = sizeof(buffer_mr_->rkey);
 
   info("initialize connection parameters");
-
-  // #ifdef USE_POLL
-  //   bg_poller_ = new std::thread([this]() -> void {
-  //     running_ = true;
-  //     info("background poller start running");
-  //     while (running_) {
-  //       poll();
-  //     }
-  //   });
-  // #endif
 }
 
 auto Conn::id() -> uint16_t { return id_; }
@@ -100,38 +70,6 @@ auto Conn::poll() -> void {
 
   memset(wc, 0, sizeof(ibv_wc) * ret);
 }
-
-#ifdef USE_NOTIFY
-auto Conn::registerCompEvent(event_base *base) -> int {
-  assert(base != nullptr);
-  comp_event_ =
-      event_new(base, cc_->fd, EV_READ | EV_PERSIST, &Conn::onWorkComp, this);
-  assert(comp_event_ != nullptr);
-  return event_add(comp_event_, nullptr);
-}
-
-auto Conn::onWorkComp([[gnu::unused]] int fd, [[gnu::unused]] short what,
-                      void *arg) -> void {
-  Conn *conn = reinterpret_cast<Conn *>(arg);
-
-  ibv_cq *cq = nullptr;
-  [[gnu::unused]] void *unused_ctx = nullptr;
-  auto ret = ibv_get_cq_event(conn->cc_, &cq, &unused_ctx);
-  ibv_ack_cq_events(cq, 1);
-  if (ret != 0) {
-    info("meet an error cq event");
-    return;
-  }
-  assert(conn->cq_ == cq); // must be the same cq
-  ret = ibv_req_notify_cq(cq, 0);
-  if (ret != 0) {
-    info("fail to request completion notification on a cq");
-    return;
-  }
-
-  conn->poll();
-}
-#endif
 
 auto Conn::postRecv(void *ctx, void *local_addr, uint32_t length, uint32_t lkey)
     -> void {
@@ -279,29 +217,10 @@ auto Conn::loaclKey() -> uint32_t { return buffer_mr_->lkey; }
 Conn::~Conn() {
   int ret = 0;
 
-#ifdef USE_NOTIFY
-  if (comp_event_ != nullptr) {
-    ret = event_del(comp_event_);
-    warn(ret, "fail to deregister completion event");
-    event_free(comp_event_);
-  }
-#endif
-
-  // #ifdef USE_POLL
-  //   running_ = false;
-  //   bg_poller_->join();
-  //   delete bg_poller_;
-  // #endif
-
   ret = ibv_destroy_qp(qp_);
   warn(ret, "fail to destroy qp");
   ret = ibv_destroy_cq(cq_);
   warn(ret, "fail to destroy cq");
-
-#ifdef USE_NOTIFY
-  ret = ibv_destroy_comp_channel(cc_);
-  warn(ret, "fail to destroy cc");
-#endif
 
   ret = rdma_destroy_id(cm_id_);
   warn(ret, "fail to destroy id");
@@ -318,9 +237,7 @@ Conn::~Conn() {
 }
 
 ConnPoller::ConnPoller()
-    : running_(true), doorbell_(false),
-      poller_(new std::thread(&ConnPoller::poll, this)) {
-}
+    : running_(true), poller_(new std::thread(&ConnPoller::poll, this)) {}
 
 ConnPoller::~ConnPoller() {
   running_ = false;
@@ -331,36 +248,26 @@ ConnPoller::~ConnPoller() {
 auto ConnPoller::poll() -> void {
   info("connection poller start");
   while (running_.load(std::memory_order_relaxed)) {
-    if (not doorbell_.test_and_set()) {
+    if (l_.tryLock()) {
       for (auto conn : conns_) {
         conn->poll();
       }
-      doorbell_.clear();
+      l_.unlock();
     }
   }
   info("connection poller stop");
 }
 
 auto ConnPoller::registerConn(Conn *conn) -> void {
-  while (true) {
-    if (not doorbell_.test_and_set()) {
-      conns_.emplace_back(conn);
-      doorbell_.clear();
-      break;
-    }
-  }
+  std::lock_guard<Spinlock> l(l_);
+  conns_.emplace_back(conn);
 }
 
 auto ConnPoller::deregisterConn(uint16_t conn_id) -> void {
-  while (true) {
-    if (not doorbell_.test_and_set()) {
-      for (auto it = conns_.begin(); it != conns_.end(); it++) {
-        if ((*it)->id() == conn_id) {
-          conns_.erase(it);
-          break;
-        }
-      }
-      doorbell_.clear();
+  std::lock_guard<Spinlock> l(l_);
+  for (auto it = conns_.begin(); it != conns_.end(); it++) {
+    if ((*it)->id() == conn_id) {
+      conns_.erase(it);
       break;
     }
   }

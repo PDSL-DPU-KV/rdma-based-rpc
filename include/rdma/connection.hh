@@ -1,9 +1,8 @@
 #ifndef __RDMA_EXAMPLE_COMMON__
 #define __RDMA_EXAMPLE_COMMON__
 
+#include "misc.hh"
 #include "util.hh"
-#include <array>
-#include <atomic>
 #include <cassert>
 #include <condition_variable>
 #include <event2/event.h>
@@ -51,14 +50,6 @@ public:
   Conn(uint16_t id, rdma_cm_id *cm_id, uint32_t n_buffer_page);
   ~Conn();
 
-#ifdef USE_NOTIFY
-public:
-  auto registerCompEvent(event_base *base) -> int;
-
-protected:
-  static auto onWorkComp(int fd, short what, void *arg) -> void;
-#endif
-
 public:
   auto id() -> uint16_t;
   auto poll() -> void;
@@ -100,18 +91,7 @@ protected:
   uint32_t n_buffer_page_{0};
   ibv_mr *buffer_mr_{nullptr};
   uint32_t remote_buffer_key_{0};
-
-#ifdef USE_NOTIFY
-  event *comp_event_{nullptr};
-  ` ibv_comp_channel *cc_{nullptr};
-#endif
-
   rdma_conn_param param_{};
-
-  // #ifdef USE_POLL
-  //   std::atomic_bool running_{false};
-  //   std::thread *bg_poller_{nullptr};
-  // #endif
 };
 
 class ConnPoller {
@@ -127,9 +107,9 @@ private:
   auto poll() -> void;
 
 private:
-  std::atomic_bool running_;
-  std::atomic_flag doorbell_;
-  std::list<Conn *> conns_;
+  std::atomic_bool running_{false};
+  Spinlock l_{};
+  std::list<Conn *> conns_{};
   std::thread *poller_{nullptr};
 };
 

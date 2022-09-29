@@ -15,7 +15,6 @@ class Client {
       Vacant,
       SendingBufferMeta,
       WaitingForResponse,
-      Stopped,
     };
 
   public:
@@ -28,7 +27,8 @@ class Client {
     auto wait(message_t &response) -> Status;
 
   public:
-    std::atomic<State> state_{Vacant};
+    State state_{Vacant};
+    Spinlock l_{};
   };
 
   class ConnWithCtx final : public Conn {
@@ -62,11 +62,6 @@ public:
   auto connect(const char *host, const char *port) -> uint32_t;
 
 private:
-#ifdef USE_NOTIFY
-  static auto onExit(int fd, short what, void *arg) -> void;
-#endif
-
-private:
   auto waitEvent(rdma_cm_event_type expected) -> rdma_cm_event *;
   auto findCtx(uint32_t ctx_id) -> Context *;
 
@@ -74,16 +69,7 @@ private:
   rdma_event_channel *ec_{nullptr};
   std::vector<ConnWithCtx *> conns_{};
   std::map<uint32_t, Context *> id2ctx_{};
-
-#ifdef USE_NOTIFY
-  event_base *base_{nullptr};
-  event *exit_event_{nullptr};
-  std::thread *bg_poller_{nullptr};
-#endif
-
-#ifdef USE_POLL
   ConnPoller bg_poller_{};
-#endif
 };
 
 } // namespace rdma

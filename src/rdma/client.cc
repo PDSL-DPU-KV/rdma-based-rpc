@@ -7,23 +7,6 @@ namespace rdma {
 Client::Client() {
   ec_ = rdma_create_event_channel();
   checkp(ec_, "fail to create event channel");
-
-#ifdef USE_NOTIFY
-  auto ret = evthread_use_pthreads();
-  check(ret, "fail to open multi-thread support for libevent");
-  base_ = event_base_new();
-  checkp(base_, "fail to allocate event loop");
-  exit_event_ = event_new(base_, SIGINT, EV_SIGNAL, &Client::onExit, this);
-  checkp(exit_event_, "fail to create exit event");
-  ret = event_add(exit_event_, nullptr);
-  check(ret, "fail to register exit event");
-  info("register all events into event loop");
-  bg_poller_ = new std::thread([this]() -> void {
-    info("background poller start working");
-    check(event_base_dispatch(base_), "poller stop with error");
-    info("background poller stop working");
-  });
-#endif
 }
 
 auto Client::connect(const char *host, const char *port) -> uint32_t {
@@ -63,13 +46,8 @@ auto Client::connect(const char *host, const char *port) -> uint32_t {
   uint32_t conn_id = conns_.size();
   auto conn = new ConnWithCtx(conn_id, this, id, addr);
   conns_.push_back(conn);
-#ifdef USE_NOTIFY
-  ret = conn->registerCompEvent(base_);
-  check(ret, "fail to register completion event");
-#endif
-#ifdef USE_POLL
+
   bg_poller_.registerConn(conn);
-#endif
   return conn_id;
 }
 
@@ -102,42 +80,19 @@ auto Client::call(uint32_t conn_id, uint32_t rpc_id, const message_t &request,
 }
 
 Client::~Client() {
-#ifdef USE_NOTIFY
-  auto ret = event_base_loopbreak(base_);
-  check(ret, "fail to stop event loop");
-  bg_poller_->join();
-  delete bg_poller_;
-  event_free(exit_event_);
-  event_base_free(base_);
-#endif
-
   for (auto conn : conns_) {
-#ifdef USE_POLL
     bg_poller_.deregisterConn(conn->id_);
-#endif
     delete conn;
   }
   rdma_destroy_event_channel(ec_);
   info("cleanup the local resources");
 }
 
-#ifdef USE_NOTIFY
-auto Client::onExit(int fd, short what, void *arg) -> void {
-  Client *c = reinterpret_cast<Client *>(arg);
-  auto ret = event_base_loopbreak(c->base_);
-  check(ret, "fail to stop event loop");
-  info("stop event loop");
-  for (auto &p : c->id2ctx_) {
-    p.second->state_.store(Context::Stopped);
-    p.second->cv_.notify_all();
-  }
-}
-#endif
-
 auto Client::Context::call(uint32_t rpc_id, const message_t &request) -> void {
-  assert(state_.load() == Vacant);
+  l_.lock(); // unlock in adcance
+  assert(state_ == Vacant);
   setRequest(request);
-  state_.store(SendingBufferMeta);
+  state_ = SendingBufferMeta;
   conn_->postSend(this, rawBuf(), headerLength(), conn_->loaclKey());
   // NOTICE: must pre-post at here
   conn_->postRecv(this, rawBuf(), readableLength(), conn_->loaclKey());
@@ -151,8 +106,8 @@ Client::Context::Context(uint32_t id, Conn *conn, void *buffer, uint32_t size)
 auto Client::Context::advance(const ibv_wc &wc) -> void {
   switch (wc.opcode) {
   case IBV_WC_SEND: {
-    assert(state_.load() == SendingBufferMeta);
-    state_.store(WaitingForResponse);
+    assert(state_ == SendingBufferMeta);
+    state_ = WaitingForResponse;
     break;
   }
   case IBV_WC_RECV_RDMA_WITH_IMM: {
@@ -162,8 +117,9 @@ auto Client::Context::advance(const ibv_wc &wc) -> void {
           ->advance(wc);
       return;
     }
-    assert(state_.load() == WaitingForResponse);
-    state_.store(Vacant);
+    assert(state_ == WaitingForResponse);
+    state_ = Vacant;
+    l_.unlock();
     break;
   }
   default: {
@@ -174,10 +130,7 @@ auto Client::Context::advance(const ibv_wc &wc) -> void {
 }
 
 auto Client::Context::wait(message_t &response) -> Status {
-  State s = Vacant;
-  do {
-    s = state_.load(std::memory_order_relaxed);
-  } while (s != Vacant and s != Stopped);
+  std::lock_guard<Spinlock> l(l_);
   if (state_ != Vacant) {
     return Status::CallFailure();
   }
