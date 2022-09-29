@@ -24,16 +24,10 @@ A simple but complete example for the RDMA beginner.
 
 ### Build
 
-We have two modes, 'poll' and 'notify'.
-
-- The former will use one background thread for one connection to polling its CQ.
-
-- The later will use libevent to handle all connections' completion events.
-
 It is better to use hugepages for NIC because of IOMMU. You can use option 'use_hugepage' to use anonymous hugepages as buffer.
 
 ```bash
-meson build -Dmode=poll -Duse_hugepage=enabled -Dprotoc_path=<protoc path>
+meson build -Duse_hugepage=enabled
 meson compile -C build
 ```
 
