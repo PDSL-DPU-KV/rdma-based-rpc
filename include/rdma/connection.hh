@@ -100,6 +100,8 @@ public:
   ~ConnPoller();
 
 public:
+  auto run() -> void;
+  auto stop() -> void;
   auto registerConn(Conn *conn) -> void;
   auto deregisterConn(uint16_t conn_id) -> void;
 
@@ -110,7 +112,7 @@ private:
   std::atomic_bool running_{false};
   Spinlock l_{};
   std::list<Conn *> conns_{};
-  std::thread *poller_{nullptr};
+  std::thread poller_{};
 };
 
 } // namespace rdma

@@ -18,7 +18,7 @@ class Client {
     };
 
   public:
-    Context(uint32_t id, Conn *conn, void *buffer, uint32_t size);
+    Context(uint32_t id, Conn *conn, void *buffer, uint32_t length);
     ~Context() = default;
 
   public:

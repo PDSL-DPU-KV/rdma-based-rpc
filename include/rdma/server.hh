@@ -4,13 +4,14 @@
 #include "connection.hh"
 #include "context.hh"
 #include "ring.hh"
+#include "thread_pool.hh"
 #include <unordered_map>
 
 namespace rdma {
 
 class Server {
   class Context final : public ConnCtx {
-  private:
+  public:
     enum State : int32_t {
       Vacant,
       WaitingForBufferMeta,
@@ -42,19 +43,15 @@ class Server {
     ~ConnWithCtx();
 
   public:
-    auto serve() -> void;
-
-  public:
     Server *s_{nullptr};
     std::array<Context *, max_context_num> handle_ctx_{};
-    SPSCRing<Context *, max_context_num> pending_ctx_{};
-    std::atomic_bool serving_{false};
-    std::thread *bg_handler_{nullptr};
   };
 
 public:
   constexpr static uint32_t default_back_log = 8;
   constexpr static uint32_t max_connection_num = 64;
+  constexpr static uint32_t max_queue_size = 256;
+  constexpr static uint32_t max_worker_num = 2;
 
 public:
   using Handler = std::function<void(RPCHandle &)>;
@@ -89,6 +86,7 @@ private:
   std::unordered_map<uint32_t, Handler> handlers_{};
 
   ConnPoller bg_poller_{};
+  ThreadPool<max_queue_size, max_worker_num> bg_handlers_{};
 };
 
 } // namespace rdma

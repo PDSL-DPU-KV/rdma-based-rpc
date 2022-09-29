@@ -38,6 +38,9 @@ Server::Server(const char *host, const char *port) {
   ret = event_add(exit_event_, nullptr);
   check(ret, "fail to register exit event");
   info("register all events into event loop");
+
+  bg_handlers_.run();
+  bg_poller_.run();
 }
 
 auto Server::run() -> int {
@@ -65,8 +68,6 @@ auto Server::handleConnEvent() -> void {
   case RDMA_CM_EVENT_CONNECT_REQUEST: { // throw when bad connection
     info("handle a connection request");
     static uint16_t conn_id = 0;
-
-    info("[debug] we got connection %d", conn_id);
 
     auto conn = new ConnWithCtx(conn_id++, this, client_id);
 
@@ -121,6 +122,8 @@ auto Server::onExit(int fd, short what, void *arg) -> void {
   auto ret = event_base_loopbreak(s->base_);
   check(ret, "fail to stop event loop");
   info("stop event loop");
+  s->bg_handlers_.stop();
+  s->bg_poller_.stop();
 }
 
 Server::~Server() {
@@ -152,21 +155,19 @@ auto Server::Context::advance(const ibv_wc &wc) -> void {
   case IBV_WC_RECV: {
     assert(state_ == WaitingForBufferMeta);
     state_ = ReadingRequest;
-    info("[debug], conn %d ctx %x is reading reqeust", conn_->id_, id_);
     conn_->postRead(this, rawBuf(), readableLength(), conn_->loaclKey(),
                     header().addr_, conn_->remoteKey());
     break;
   }
   case IBV_WC_RDMA_READ: {
     assert(state_ == ReadingRequest);
-    info("[debug], conn %d ctx %x is push reqeust to handle", conn_->id_, id_);
     state_ = FilledWithRequest;
-    reinterpret_cast<ConnWithCtx *>(conn_)->pending_ctx_.push(this);
+    reinterpret_cast<ConnWithCtx *>(conn_)->s_->bg_handlers_.enqueue(
+        &Context::handler, this);
     break;
   }
   case IBV_WC_RDMA_WRITE: {
     assert(state_ == WritingResponse);
-    info("[debug], conn %d ctx %x sent response", conn_->id_, id_);
     state_ = Vacant;
     prepare();
     break;
@@ -192,22 +193,7 @@ Server::ConnWithCtx::ConnWithCtx(uint16_t conn_id, Server *s, rdma_cm_id *cm_id)
     handle_ctx_[i] = new Context(ctx_id, this, bufferPage(i), buffer_page_size);
     handle_ctx_[i]->prepare(); // only receiver need prepare for request
   }
-  serving_ = true;
-  bg_handler_ = new std::thread(&ConnWithCtx::serve, this);
   s_->bg_poller_.registerConn(this);
-}
-
-auto Server::ConnWithCtx::serve() -> void {
-  info("bg handler running");
-  Context *ctx;
-  while (serving_.load(std::memory_order_relaxed)) {
-    if (pending_ctx_.tryPop(ctx)) {
-      ctx->handler();
-    } else {
-      pause();
-    }
-  }
-  info("bg handler exits");
 }
 
 Server::ConnWithCtx::~ConnWithCtx() {
@@ -215,9 +201,6 @@ Server::ConnWithCtx::~ConnWithCtx() {
   for (auto p : handle_ctx_) {
     delete p;
   }
-  serving_ = false;
-  bg_handler_->join();
-  delete bg_handler_;
 }
 
 } // namespace rdma

@@ -236,26 +236,35 @@ Conn::~Conn() {
   info("cleanup connection resources");
 }
 
-ConnPoller::ConnPoller()
-    : running_(true), poller_(new std::thread(&ConnPoller::poll, this)) {}
+ConnPoller::ConnPoller() : running_(false) {}
 
-ConnPoller::~ConnPoller() {
-  running_ = false;
-  poller_->join();
-  delete poller_;
+ConnPoller::~ConnPoller() { stop(); }
+
+auto ConnPoller::run() -> void {
+  running_.store(true, std::memory_order_release);
+  poller_ = std::thread(&ConnPoller::poll, this);
+  info("connection poller is running");
+}
+
+auto ConnPoller::stop() -> void {
+  if (running_.load(std::memory_order_acquire)) {
+    running_.store(false, std::memory_order_release);
+    poller_.join();
+    info("connection poller stopped");
+  }
 }
 
 auto ConnPoller::poll() -> void {
-  info("connection poller start");
-  while (running_.load(std::memory_order_relaxed)) {
+  while (running_.load(std::memory_order_acquire)) {
     if (l_.tryLock()) {
       for (auto conn : conns_) {
         conn->poll();
       }
       l_.unlock();
+    } else {
+      pause();
     }
   }
-  info("connection poller stop");
 }
 
 auto ConnPoller::registerConn(Conn *conn) -> void {

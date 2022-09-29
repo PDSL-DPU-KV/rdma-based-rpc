@@ -7,6 +7,7 @@ namespace rdma {
 Client::Client() {
   ec_ = rdma_create_event_channel();
   checkp(ec_, "fail to create event channel");
+  bg_poller_.run();
 }
 
 auto Client::connect(const char *host, const char *port) -> uint32_t {
@@ -84,22 +85,25 @@ Client::~Client() {
     bg_poller_.deregisterConn(conn->id_);
     delete conn;
   }
+  bg_poller_.stop();
   rdma_destroy_event_channel(ec_);
   info("cleanup the local resources");
 }
 
 auto Client::Context::call(uint32_t rpc_id, const message_t &request) -> void {
-  l_.lock(); // unlock in adcance
   assert(state_ == Vacant);
   setRequest(request);
   state_ = SendingBufferMeta;
+
+  // after filled with request, context will be handled by background poller
+  l_.lock(); // unlock in adcance
   conn_->postSend(this, rawBuf(), headerLength(), conn_->loaclKey());
   // NOTICE: must pre-post at here
   conn_->postRecv(this, rawBuf(), readableLength(), conn_->loaclKey());
 }
 
-Client::Context::Context(uint32_t id, Conn *conn, void *buffer, uint32_t size)
-    : ConnCtx(id, conn, buffer, size) {
+Client::Context::Context(uint32_t id, Conn *conn, void *buffer, uint32_t length)
+    : ConnCtx(id, conn, buffer, length) {
   header().addr_ = rawBuf();
 }
 
