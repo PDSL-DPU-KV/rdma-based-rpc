@@ -1,8 +1,8 @@
 #ifndef __RDMA_EXAMPLE_COMMON__
 #define __RDMA_EXAMPLE_COMMON__
 
-#include "misc.hh"
-#include "util.hh"
+#include "util/misc.hh"
+#include "util/util.hh"
 #include <cassert>
 #include <condition_variable>
 #include <event2/event.h>

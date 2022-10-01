@@ -37,8 +37,7 @@ project_source_files = []
 # include directories
 
 incs = [
-    include_directories('include/rdma'),
-    include_directories('include/util'),
+    include_directories('include/rdma_rpc'),
 ]
 
 # program
@@ -60,19 +59,21 @@ if not protoc.found()
 endif
 
 # sub-directories
-
-subdir('include')
+subdir('include/rdma_rpc')
 subdir('src')
-subdir('app')
-subdir('bench')
+
+if not get_option('as_subproject')
+    subdir('app')
+    subdir('bench')
+endif
 
 # declare dependency
 rdma_based_rpc_dep = declare_dependency(
     link_with: rdma_rpc_lib,
+    dependencies: deps,
     include_directories: include_directories('include'),
 )
 
 # package config
-
 pkg = import('pkgconfig')
 pkg.generate(rdma_rpc_lib, description: 'RPC over RDMA')

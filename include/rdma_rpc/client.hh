@@ -3,8 +3,8 @@
 
 #include "connection.hh"
 #include "context.hh"
-#include "ring.hh"
 #include "status.hh"
+#include "util/ring.hh"
 
 namespace rdma {
 

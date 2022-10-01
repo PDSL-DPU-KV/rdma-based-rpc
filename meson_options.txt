@@ -10,3 +10,9 @@ option(
     value: 'disabled',
     description: 'option for using hugepage',
 )
+option(
+    'as_subproject',
+    type: 'boolean',
+    value: false,
+    description: 'options for build as subproject',
+)

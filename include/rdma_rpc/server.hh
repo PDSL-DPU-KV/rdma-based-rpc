@@ -3,8 +3,8 @@
 
 #include "connection.hh"
 #include "context.hh"
-#include "ring.hh"
-#include "thread_pool.hh"
+#include "util/ring.hh"
+#include "util/thread_pool.hh"
 #include <unordered_map>
 
 namespace rdma {
