@@ -2,7 +2,7 @@
 #include "bench.pb.h"
 #include "measure.hh"
 
-auto main(int argc, char *argv[]) -> int {
+auto main([[gnu::unused]] int argc, char *argv[]) -> int {
   rdma::Client c;
   auto message_size = std::atoi(argv[3]);
   auto n_thread = std::atoi(argv[4]);

@@ -97,10 +97,11 @@ inline static auto alloc(uint32_t len) -> void * {
 #endif
 }
 
-inline static auto dealloc(void *p, uint32_t len) -> void {
 #ifdef USE_HUGEPAGE
+inline static auto dealloc(void *p, uint32_t len) -> void {
   check(munmap(p, align(len, HUGE_PAGE_SIZE)), "fail to deallocate hugepage");
 #else
+inline static auto dealloc(void *p, [[gnu::unused]] uint32_t len) -> void {
   delete[](char *) p;
 #endif
 }

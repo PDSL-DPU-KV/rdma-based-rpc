@@ -29,20 +29,19 @@ public:
 private:
   constexpr static auto defaultQpInitAttr() -> ibv_qp_init_attr {
     return {
-        .qp_context = nullptr,
-        .send_cq = nullptr,
-        .recv_cq = nullptr,
-        .srq = nullptr,
-        .cap =
-            {
-                .max_send_wr = queue_depth,
-                .max_recv_wr = queue_depth,
-                .max_send_sge = 1,
-                .max_recv_sge = 1,
-                .max_inline_data = 0,
-            },
-        .qp_type = IBV_QPT_RC,
-        .sq_sig_all = 0,
+        nullptr, // qp_context
+        nullptr, // send_cq
+        nullptr, // recv_cq
+        nullptr, // srq
+        {
+            queue_depth, // max_send_wr
+            queue_depth, // max_recv_wr
+            1,           // max_send_sge
+            1,           // max_recv_sge
+            0,           // max_inline_data
+        },               // cap
+        IBV_QPT_RC,      // qp_type
+        0,               // sq_sig_all
     };
   }
 

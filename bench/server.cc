@@ -2,7 +2,7 @@
 #include "bench.pb.h"
 #include "measure.hh"
 
-auto main(int argc, char *argv[]) -> int {
+auto main([[gnu::unused]] int argc, char *argv[]) -> int {
   rdma::Server s(argv[1], argv[2]);
 
   rdma::AccStatistics<1000> c;

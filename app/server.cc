@@ -1,7 +1,7 @@
 #include "server.hh"
 #include "hello.pb.h"
 
-auto main(int argc, char *argv[]) -> int {
+auto main([[gnu::unused]] int argc, char *argv[]) -> int {
   rdma::Server s(argv[1], argv[2]);
 
   s.registerHandler(0, [](rdma::RPCHandle &handle) -> void {

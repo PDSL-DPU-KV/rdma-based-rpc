@@ -93,6 +93,7 @@ Client::~Client() {
 auto Client::Context::call(uint32_t rpc_id, const message_t &request) -> void {
   assert(state_ == Vacant);
   setRequest(request);
+  header().rpc_id_ = rpc_id;
   state_ = SendingBufferMeta;
 
   // after filled with request, context will be handled by background poller

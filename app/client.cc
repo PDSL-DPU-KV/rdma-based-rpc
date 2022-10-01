@@ -3,7 +3,7 @@
 
 #include <thread>
 
-auto main(int argc, char *argv[]) -> int {
+auto main([[gnu::unused]] int argc, char *argv[]) -> int {
   rdma::Client c;
 
   auto conn_id_1 = c.connect(argv[1], argv[2]);

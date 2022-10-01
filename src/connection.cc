@@ -74,15 +74,15 @@ auto Conn::poll() -> void {
 auto Conn::postRecv(void *ctx, void *local_addr, uint32_t length, uint32_t lkey)
     -> void {
   ibv_sge sge{
-      .addr = (uint64_t)local_addr,
-      .length = length,
-      .lkey = lkey,
+      (uint64_t)local_addr, // addr
+      length,               // length
+      lkey,                 // lkey
   };
   ibv_recv_wr wr{
-      .wr_id = (uintptr_t)ctx,
-      .next = nullptr,
-      .sg_list = &sge,
-      .num_sge = 1,
+      (uintptr_t)ctx, // wr_id
+      nullptr,        // next
+      &sge,           // sg_list
+      1,              // num_sge
   };
   ibv_recv_wr *bad = nullptr;
   auto ret = ibv_post_recv(qp_, &wr, &bad);
@@ -92,17 +92,21 @@ auto Conn::postRecv(void *ctx, void *local_addr, uint32_t length, uint32_t lkey)
 auto Conn::postSend(void *ctx, void *local_addr, uint32_t length, uint32_t lkey,
                     bool need_inline) -> void {
   ibv_sge sge{
-      .addr = (uint64_t)local_addr,
-      .length = length,
-      .lkey = lkey,
+      (uint64_t)local_addr, // addr
+      length,               // length
+      lkey,                 // lkey
   };
   ibv_send_wr wr{
-      .wr_id = (uintptr_t)ctx,
-      .next = nullptr,
-      .sg_list = &sge,
-      .num_sge = 1,
-      .opcode = IBV_WR_SEND,
-      .send_flags = IBV_SEND_SIGNALED,
+      (uintptr_t)ctx,    // wr_id
+      nullptr,           // next
+      &sge,              // sg_list
+      1,                 // num_sge
+      IBV_WR_SEND,       // opcode
+      IBV_SEND_SIGNALED, // send_flags
+      {},
+      {},
+      {},
+      {},
   };
   if (need_inline) {
     wr.send_flags |= IBV_SEND_INLINE;
@@ -115,23 +119,26 @@ auto Conn::postSend(void *ctx, void *local_addr, uint32_t length, uint32_t lkey,
 auto Conn::postRead(void *ctx, void *local_addr, uint32_t length, uint32_t lkey,
                     void *remote_addr, uint32_t rkey) -> void {
   ibv_sge sge{
-      .addr = (uint64_t)local_addr,
-      .length = length,
-      .lkey = lkey,
+      (uint64_t)local_addr, // addr
+      length,               // length
+      lkey,                 // lkey
   };
   ibv_send_wr wr{
-      .wr_id = (uintptr_t)ctx,
-      .next = nullptr,
-      .sg_list = &sge,
-      .num_sge = 1,
-      .opcode = IBV_WR_RDMA_READ,
-      .send_flags = IBV_SEND_SIGNALED,
-      .wr{
-          .rdma{
-              .remote_addr = (uint64_t)remote_addr,
-              .rkey = rkey,
+      (uintptr_t)ctx,    // wr_id
+      nullptr,           // next
+      &sge,              // sg_list
+      1,                 // num_sge
+      IBV_WR_RDMA_READ,  // opcode
+      IBV_SEND_SIGNALED, // send_flags
+      {},
+      {
+          {
+              (uint64_t)remote_addr, // remote_addr
+              rkey,                  // rkey
           },
-      },
+      }, // wr
+      {},
+      {},
   };
   ibv_send_wr *bad = nullptr;
   auto ret = ibv_post_send(qp_, &wr, &bad);
@@ -142,23 +149,26 @@ auto Conn::postWrite(void *ctx, void *local_addr, uint32_t length,
                      uint32_t lkey, void *remote_addr, uint32_t rkey,
                      bool need_inline) -> void {
   ibv_sge sge{
-      .addr = (uint64_t)local_addr,
-      .length = length,
-      .lkey = lkey,
+      (uint64_t)local_addr, // addr
+      length,               // length
+      lkey,                 // lkey
   };
   ibv_send_wr wr{
-      .wr_id = (uintptr_t)ctx,
-      .next = nullptr,
-      .sg_list = &sge,
-      .num_sge = 1,
-      .opcode = IBV_WR_RDMA_WRITE,
-      .send_flags = IBV_SEND_SIGNALED,
-      .wr{
-          .rdma{
-              .remote_addr = (uint64_t)remote_addr,
-              .rkey = rkey,
+      (uintptr_t)ctx,    // wr_id
+      nullptr,           // next
+      &sge,              // sg_list
+      1,                 // num_sge
+      IBV_WR_RDMA_WRITE, // opcode
+      IBV_SEND_SIGNALED, // send_flags
+      {},
+      {
+          {
+              (uint64_t)remote_addr, // remote_addr
+              rkey,                  // rkey
           },
-      },
+      }, // wr
+      {},
+      {},
   };
   if (need_inline) {
     wr.send_flags |= IBV_SEND_INLINE;
@@ -172,24 +182,26 @@ auto Conn::postWriteImm(void *ctx, void *local_addr, uint32_t length,
                         uint32_t lkey, void *remote_addr, uint32_t rkey,
                         uint32_t imm) -> void {
   ibv_sge sge{
-      .addr = (uint64_t)local_addr,
-      .length = length,
-      .lkey = lkey,
+      (uint64_t)local_addr, // addr
+      length,               // length
+      lkey,                 // lkey
   };
   ibv_send_wr wr{
-      .wr_id = (uintptr_t)ctx,
-      .next = nullptr,
-      .sg_list = &sge,
-      .num_sge = 1,
-      .opcode = IBV_WR_RDMA_WRITE_WITH_IMM,
-      .send_flags = IBV_SEND_SIGNALED,
-      .imm_data = imm,
-      .wr{
-          .rdma{
-              .remote_addr = (uint64_t)remote_addr,
-              .rkey = rkey,
+      (uintptr_t)ctx,             // wr_id
+      nullptr,                    // next
+      &sge,                       // sg_list
+      1,                          // num_sge
+      IBV_WR_RDMA_WRITE_WITH_IMM, // opcode
+      IBV_SEND_SIGNALED,          // send_flags
+      {imm},                      // imm_data
+      {
+          {
+              (uint64_t)remote_addr, // remote_addr
+              rkey,                  // rkey
           },
-      },
+      }, // wr
+      {},
+      {},
   };
   ibv_send_wr *bad = nullptr;
   auto ret = ibv_post_send(qp_, &wr, &bad);

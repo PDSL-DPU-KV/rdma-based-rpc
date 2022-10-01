@@ -117,7 +117,8 @@ auto Server::onConnEvent([[gnu::unused]] int fd, [[gnu::unused]] short what,
   reinterpret_cast<Server *>(arg)->handleConnEvent();
 }
 
-auto Server::onExit(int fd, short what, void *arg) -> void {
+auto Server::onExit([[gnu::unused]] int fd, [[gnu::unused]] short what,
+                    void *arg) -> void {
   Server *s = reinterpret_cast<Server *>(arg);
   auto ret = event_base_loopbreak(s->base_);
   check(ret, "fail to stop event loop");
