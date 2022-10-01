@@ -72,7 +72,7 @@ public:
 
 public:
   auto remoteKey() -> uint32_t;
-  auto loaclKey() -> uint32_t;
+  auto localKey() -> uint32_t;
 
 protected:
   static auto onRecv(int fd, short what, void *arg) -> void;

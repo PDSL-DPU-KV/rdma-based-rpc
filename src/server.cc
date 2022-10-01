@@ -148,16 +148,22 @@ Server::Context::~Context() {}
 
 auto Server::Context::prepare() -> void {
   state_ = WaitingForBufferMeta;
-  conn_->postRecv(this, rawBuf(), headerLength(), conn_->loaclKey());
+  conn_->postRecv(this, rawBuf(), rawBufLength(), conn_->localKey());
 }
 
 auto Server::Context::advance(const ibv_wc &wc) -> void {
   switch (wc.opcode) {
   case IBV_WC_RECV: {
     assert(state_ == WaitingForBufferMeta);
-    state_ = ReadingRequest;
-    conn_->postRead(this, rawBuf(), readableLength(), conn_->loaclKey(),
-                    header().addr_, conn_->remoteKey());
+    if (messageType() == MessageType::ImmRequest) {
+      state_ = FilledWithRequest;
+      reinterpret_cast<ConnWithCtx *>(conn_)->s_->bg_handlers_.enqueue(
+          &Context::handler, this);
+    } else {
+      state_ = ReadingRequest;
+      conn_->postRead(this, rawBuf(), readableLength(), conn_->localKey(),
+                      header().addr_, conn_->remoteKey());
+    }
     break;
   }
   case IBV_WC_RDMA_READ: {
@@ -183,7 +189,7 @@ auto Server::Context::advance(const ibv_wc &wc) -> void {
 auto Server::Context::handler() -> void {
   static_cast<ConnWithCtx *>(conn_)->s_->getHandler(header().rpc_id_)(*this);
   state_ = WritingResponse;
-  conn_->postWriteImm(this, rawBuf(), readableLength(), conn_->loaclKey(),
+  conn_->postWriteImm(this, rawBuf(), readableLength(), conn_->localKey(),
                       header().addr_, conn_->remoteKey(), header().ctx_id_);
 }
 

@@ -98,9 +98,13 @@ auto Client::Context::call(uint32_t rpc_id, const message_t &request) -> void {
 
   // after filled with request, context will be handled by background poller
   l_.lock(); // unlock in adcance
-  conn_->postSend(this, rawBuf(), headerLength(), conn_->loaclKey());
+  if (messageType() == MessageType::ImmRequest) {
+    conn_->postSend(this, rawBuf(), readableLength(), conn_->localKey());
+  } else {
+    conn_->postSend(this, rawBuf(), headerLength(), conn_->localKey());
+  }
   // NOTICE: must pre-post at here
-  conn_->postRecv(this, rawBuf(), readableLength(), conn_->loaclKey());
+  conn_->postRecv(this, rawBuf(), rawBufLength(), conn_->localKey());
 }
 
 Client::Context::Context(uint32_t id, Conn *conn, void *buffer, uint32_t length)

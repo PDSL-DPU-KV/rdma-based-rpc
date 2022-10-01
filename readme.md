@@ -78,6 +78,7 @@ Server Side Context
 stateDiagram
     Vacant --> WaitingForBufferMeta: Initialize and wait for meta.
     WaitingForBufferMeta --> ReadingRequest: Receive meta and read request.
+    WaitingForBufferMeta --> FilledWithRequest: Receive meta and immediate request.
     ReadingRequest --> FilledWithRequest: Completion event of reading request.
     FilledWithRequest --> FilledWithResponse: Push into queue for handler thread.
     FilledWithResponse --> WritingResponse: Fill with resposne and write response.
@@ -94,7 +95,7 @@ stateDiagram
 - [ ] add memory pool
 - [ ] add raw api
 - [x] use one poller for all connections
-- [ ] accelerate small rpc
+- [x] accelerate small rpc
 - [ ] split request and replay
 
 ## Bug

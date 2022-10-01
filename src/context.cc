@@ -26,23 +26,27 @@ auto ConnCtx::getMessage(message_t &message) -> void {
 auto ConnCtx::setRequest(const message_t &message) -> void {
   setMessage(message);
   header().ctx_id_ = id_;
-  header().is_response_ = false;
+  header().type_ = header().msg_len_ <= imm_request_size
+                       ? MessageType::ImmRequest
+                       : MessageType::Request;
 }
 
 auto ConnCtx::setResponse(const message_t &message) -> void {
   setMessage(message);
-  header().is_response_ = true;
+  header().type_ = MessageType::Response;
 }
 
 auto ConnCtx::getRequest(message_t &message) -> void {
-  assert(not header().is_response_);
+  assert(messageType() == Request or messageType() == ImmRequest);
   getMessage(message);
 }
 
 auto ConnCtx::getResponse(message_t &message) -> void {
-  assert(header().is_response_);
+  assert(messageType() == Response);
   getMessage(message);
 }
+
+auto ConnCtx::messageType() -> MessageType { return header().type_; }
 
 auto ConnCtx::reset() -> void { memset(meta_.buf_, 0, meta_.buf_len_); }
 
@@ -51,6 +55,8 @@ auto ConnCtx::header() -> MessageHeader & {
 }
 
 auto ConnCtx::rawBuf() -> void * { return meta_.buf_; }
+
+auto ConnCtx::rawBufLength() -> uint32_t { return meta_.buf_len_; }
 
 auto ConnCtx::rawMessage() -> char * {
   return reinterpret_cast<char *>(meta_.buf_) + sizeof(MessageHeader);

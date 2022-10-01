@@ -224,7 +224,7 @@ auto Conn::bufferPage(uint32_t id) -> void * {
 
 auto Conn::remoteKey() -> uint32_t { return remote_buffer_key_; }
 
-auto Conn::loaclKey() -> uint32_t { return buffer_mr_->lkey; }
+auto Conn::localKey() -> uint32_t { return buffer_mr_->lkey; }
 
 Conn::~Conn() {
   int ret = 0;
