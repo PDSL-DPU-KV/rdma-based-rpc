@@ -1,6 +1,6 @@
-# RDMA-Example
+# RDMA-Based RPC
 
-A simple but complete example for the RDMA beginner.
+This is a quite simple RDMA-Based RPC implementation used in DPUKV.
 
 ## Prerequisite
 
