@@ -17,7 +17,6 @@ endif
 
 # sub-projects
 protobuf = subproject('protobuf', version: '=3.20.1')
-rapidjson = subproject('rapidjson', version: '=1.1.0')
 
 # dependencies
 
@@ -28,7 +27,6 @@ deps = [
     dependency('librdmacm'),
     dependency('threads'),
     protobuf.get_variable('protobuf_dep'),
-    rapidjson.get_variable('rapidjson_dep'),
 ]
 
 # sources
