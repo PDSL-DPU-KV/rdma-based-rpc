@@ -1,0 +1,10 @@
+# editor
+.vscode
+
+# build
+build
+
+# subproject
+/subprojects/*
+!/subprojects/*.wrap
+
