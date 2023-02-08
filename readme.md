@@ -92,11 +92,8 @@ stateDiagram
 - [x] add read and write verbs
 - [x] add ring for multi-client-calls
 - [x] add background handler 
-- [ ] add memory pool
-- [ ] add raw api
 - [x] use one poller for all connections
 - [x] accelerate small rpc
-- [ ] split request and replay
 
 ## Bug
 
