@@ -1,0 +1,28 @@
+diff --git a/lib/meson.build b/lib/meson.build
+index c648f7d..49c5203 100644
+--- a/lib/meson.build
++++ b/lib/meson.build
+@@ -256,7 +256,8 @@ foreach l:libraries
+             link_depends: lk_deps,
+             version: abi_version,
+             soversion: so_version,
+-            install: true)
++            install: true,
++            install_rpath: get_option('prefix') / get_option('libdir'))
+     shared_dep = declare_dependency(link_with: shared_lib,
+             include_directories: includes,
+             dependencies: shared_deps)
+diff --git a/drivers/meson.build b/drivers/meson.build
+index b22c2ad..9ef99dd 100644
+--- a/drivers/meson.build
++++ b/drivers/meson.build
+@@ -231,7 +231,8 @@ foreach subpath:subdirs
+                 version: abi_version,
+                 soversion: so_version,
+                 install: true,
+-                install_dir: driver_install_path)
++                install_dir: driver_install_path,
++                install_rpath: get_option('prefix') / get_option('libdir'))
+ 
+         # create a dependency object and add it to the global dictionary so
+         # testpmd or other built-in apps can find it if necessary

@@ -8,3 +8,8 @@ build
 /subprojects/*
 !/subprojects/*.wrap
 
+# third party
+/third_party/*
+
+# clangd
+.cache
